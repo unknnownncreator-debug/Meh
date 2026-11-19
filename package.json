@@ -1,0 +1,17 @@
+{
+  "name": "meh-video-search",
+  "version": "1.0.0",
+  "description": "Search the web like Google, inspect pages for video, and autoplay what it finds.",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "postinstall": "playwright install chromium",
+    "test": "node test/e2e.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "hls.js": "^1.6.0",
+    "playwright": "1.63.0"
+  }
+}

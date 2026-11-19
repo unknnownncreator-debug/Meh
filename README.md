@@ -1,1 +1,78 @@
-# Meh
+# meh: a video search engine that plays what it finds
+
+Type anything. **meh** searches the web like Google does, opens the result pages, inspects each one to find the video on it, ranks the videos by how well they match your words, and plays them back to back.
+
+No API keys and no accounts.
+
+## Run it
+
+You need [Node.js](https://nodejs.org) 18 or newer.
+
+```bash
+npm install      # also downloads the headless Chromium used for page inspection
+npm start
+```
+
+Then open **http://localhost:3000**, type something, and press Enter.
+
+## How it works
+
+```
+ your words ─► 1. SEARCH ─► 2. INSPECT ─► 3. RANK ─► 4. PLAY
+```
+
+1. **Search** (`lib/search.js`). Reads the public result pages of DuckDuckGo, Bing, Bing Videos and YouTube in parallel, the same pages you see in a browser. Their links are merged round-robin so no single engine or site dominates. If a plain request is blocked, that search page is loaded in the headless browser instead.
+2. **Inspect** (`lib/inspector.js`). Each result page (up to 40, five at a time) is examined in two stages:
+   - **Static HTML.** Reads what the page declares: `og:video` and Twitter player tags, JSON-LD `VideoObject` data, `<video>` and `<source>` tags, and embedded YouTube, Vimeo or Dailymotion players. This is fast and needs no browser.
+   - **Live browser.** If nothing was declared, the page is opened in headless Chromium. The browser scrolls, presses play, and watches the network for video files (`.mp4`, `.webm`) and HLS streams (`.m3u8`). It then reads the live DOM of every frame. This catches players that load their video with JavaScript.
+   - Ad networks are blocked, and pre-rolls, tiny hidden videos and clips under 20 seconds are discarded.
+3. **Rank** (`lib/ranker.js`). Each video gets a relevance score from 0 to 100. The score depends on how much of your query appears in the video's title (weighted highest), the page title, the description and the text around the video. Phrase matches and the search engine's own ranking add bonuses. The player also spreads sites out so one domain doesn't take over the queue.
+4. **Play** (`public/app.js`). Results stream to the page live, so the first video starts within seconds while the rest of the web is still being inspected.
+   - Direct video files play in the built-in player.
+   - HLS streams play through [hls.js](https://github.com/video-dev/hls.js).
+   - YouTube and Vimeo pages use their own embedded players, so the app knows when a video ends.
+   - Video is streamed through the local server (`lib/proxy.js`) with the right `Referer` header, so sites that block other players still work.
+   - When a video ends, the next one starts. A video that fails to load is skipped. When the queue runs low, the next page of search results is fetched.
+
+## Controls
+
+| Key | Action |
+|---|---|
+| `N` | Next video |
+| `P` | Previous video |
+| `K` / Space | Pause / play |
+| `M` | Mute |
+| `/` | Focus the search box |
+
+Other controls:
+- **Autoplay next.** Turn it off to stop after each video.
+- **Skip watched.** Videos you've already seen are skipped. They are remembered in your browser only.
+- **Search in the address.** The search is in the URL (`/?q=...`), so you can bookmark it or reload the page.
+
+## Settings (environment variables)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PORT` | `3000` | Port to listen on |
+| `HOST` | `127.0.0.1` | Interface to bind to. Keep it local; see the note below. |
+| `MEH_CONCURRENCY` | `5` | Pages inspected at once |
+| `MEH_MAX_PAGES` | `40` | Result pages inspected per search page |
+
+## Limits
+
+- **Can't play:** DRM-protected services (Netflix, Disney+ and similar), pages behind a login, and sites that block automated browsers. These are skipped.
+- **Search pages change.** If a search engine changes its page layout, its parser in `lib/search.js` may need updating. Because several engines are used, one breaking doesn't stop the app.
+- **Personal use only.** Run it on your own machine. Scraping search engines and re-streaming video goes against some sites' terms of service.
+
+## Tests
+
+```bash
+npm test
+```
+
+The test needs `ffmpeg`, which it uses to generate sample videos. It starts a local fixture site whose pages hide video in different ways: a plain `<video>` tag, JSON-LD, a JavaScript player that loads an HLS stream, an embedded YouTube iframe, an ad-only page and a text-only page. It checks that:
+- inspection finds the right videos and ignores the ad,
+- ranking puts the best match first,
+- the proxy handles range requests and HLS playlist rewriting,
+- in a real browser, the app autoplays, advances on end, and handles `N` and `P` correctly,
+- the layout works at phone width.

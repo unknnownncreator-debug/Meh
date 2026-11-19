@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>meh — video search</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23e5484d'/><path d='M12 9l12 7-12 7z' fill='white'/></svg>">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/vendor/hls.min.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body class="is-home">
+  <header class="top">
+    <a class="logo" href="/" aria-label="meh home"><span class="logo-mark" aria-hidden="true"></span>meh</a>
+    <form id="search" class="search" role="search" autocomplete="off">
+      <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 2a8 8 0 105.3 14l5.4 5.3 1.4-1.4-5.3-5.4A8 8 0 0010 2zm0 2a6 6 0 110 12 6 6 0 010-12z"/></svg>
+      <input id="q" name="q" type="search" placeholder="Type anything — it finds the videos and plays them" aria-label="Search for videos" autofocus>
+      <button type="submit">Play</button>
+    </form>
+    <p class="tagline">Searches the whole web, finds the videos on each page, and plays them back to back.</p>
+  </header>
+
+  <main class="stage" hidden>
+    <section class="player-col">
+      <div id="player" class="player">
+        <video id="video" controls playsinline preload="auto"></video>
+        <div id="embed" class="embed" hidden></div>
+        <div id="overlay" class="overlay">
+          <div class="spinner" aria-hidden="true"></div>
+          <p id="overlayText">Searching…</p>
+        </div>
+      </div>
+
+      <div class="now">
+        <h1 id="nowTitle"></h1>
+        <div class="now-meta">
+          <a id="nowSource" target="_blank" rel="noopener noreferrer"></a>
+          <span id="nowKind" class="badge"></span>
+          <span id="nowScore" class="muted"></span>
+        </div>
+        <div class="controls">
+          <button id="prev" type="button" title="Previous (P)">⏮ Prev</button>
+          <button id="next" type="button" title="Next (N)">Next ⏭</button>
+          <button id="unmute" type="button" hidden>🔊 Tap to unmute</button>
+          <label class="toggle"><input id="autoplay" type="checkbox" checked> Autoplay next</label>
+          <label class="toggle"><input id="skipWatched" type="checkbox" checked> Skip watched</label>
+        </div>
+        <p id="nowDesc" class="desc"></p>
+      </div>
+    </section>
+
+    <aside class="queue-col">
+      <div class="status"><span id="statusDot" class="dot"></span><span id="status">Starting…</span></div>
+      <div class="queue-head">
+        <h2>Up next</h2>
+        <span id="queueCount" class="muted"></span>
+      </div>
+      <ol id="queue" class="queue"></ol>
+      <p class="keys muted"><kbd>N</kbd> next · <kbd>P</kbd> previous · <kbd>K</kbd> pause · <kbd>M</kbd> mute · <kbd>/</kbd> search</p>
+    </aside>
+  </main>
+</body>
+</html>
