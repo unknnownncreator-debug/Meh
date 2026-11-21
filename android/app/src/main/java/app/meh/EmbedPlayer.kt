@@ -15,7 +15,7 @@ import org.json.JSONObject
  * Plays YouTube / Vimeo / Dailymotion videos with the sites' own embedded players,
  * reporting started / ended / failed back to the app so autoplay can advance.
  */
-class EmbedPlayer(context: Context, private val host: ViewGroup, private val events: Events) {
+class EmbedPlayer(private val context: Context, private val host: ViewGroup, private val events: Events) {
 
     interface Events {
         fun onEmbedStarted(token: Int)
@@ -27,8 +27,10 @@ class EmbedPlayer(context: Context, private val host: ViewGroup, private val eve
     private val main = Handler(Looper.getMainLooper())
     private var token = 0
 
+    private var web = makeWeb()
+
     @SuppressLint("SetJavaScriptEnabled")
-    private val web = WebView(context).apply {
+    private fun makeWeb(): WebView = WebView(context).apply {
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.mediaPlaybackRequiresUserGesture = false
@@ -37,6 +39,20 @@ class EmbedPlayer(context: Context, private val host: ViewGroup, private val eve
         webViewClient = object : WebViewClient() {
             // Keep the player page in place: links inside the embed must not navigate away.
             override fun shouldOverrideUrlLoading(view: WebView, request: android.webkit.WebResourceRequest) = request.isForMainFrame
+
+            // The renderer crashed or was killed (e.g. a frozen page elsewhere in the app):
+            // swap in a fresh WebView and skip the current video instead of crashing the app.
+            override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
+                main.post {
+                    if (view !== web) return@post
+                    host.removeView(view)
+                    try { view.destroy() } catch (e: Throwable) {}
+                    web = makeWeb()
+                    val t = token
+                    if (t >= 0) events.onEmbedFailed(t, "player crashed")
+                }
+                return true
+            }
         }
         addJavascriptInterface(Bridge(), "Meh")
         host.addView(this, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))

@@ -105,7 +105,7 @@ fun decodeEntities(s: String): String =
     }
 
 fun stripTags(s: String): String =
-    decodeEntities(s.replace(Regex("<[^>]*>"), " ")).replace(Regex("\\s+"), " ").trim()
+    decodeEntities(s.replace(Regex("<[^<>]{0,2000}>"), " ")).replace(Regex("\\s+"), " ").trim()
 
 /** ISO-8601 duration (PT1H2M3S), plain seconds, or clock time (4:13) → seconds. */
 fun parseDuration(d: Any?): Double? {

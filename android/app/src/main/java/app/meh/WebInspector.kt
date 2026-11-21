@@ -29,7 +29,7 @@ import kotlin.coroutines.resume
  * playlists. Media requests are recorded and then blocked, so nothing plays out loud
  * and no data is wasted. Finally the live DOM is read with [PROBE_JS].
  */
-class WebInspector(context: Context, host: ViewGroup, size: Int = 3) {
+class WebInspector(private val context: Context, private val host: ViewGroup, size: Int = 3) {
 
     private class Sniffed(val url: String, val kind: String?, val referer: String)
 
@@ -39,6 +39,14 @@ class WebInspector(context: Context, host: ViewGroup, size: Int = 3) {
 
     private inner class Client : WebViewClient() {
         @Volatile var session: Session? = null
+        /** The page's renderer crashed or was killed: this WebView must be thrown away. */
+        @Volatile var dead = false
+
+        // Without this, a crashing page (or the renderer being killed for memory) kills the whole app.
+        override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
+            dead = true
+            return true
+        }
 
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             val scheme = request.url.scheme ?: return true
@@ -68,16 +76,42 @@ class WebInspector(context: Context, host: ViewGroup, size: Int = 3) {
 
     init {
         CookieManager.getInstance().setAcceptCookie(true)
-        repeat(size) {
-            val wv = makeWebView(context)
-            val client = Client()
-            wv.webViewClient = client
-            // Real on-screen size (behind the app UI) so layouts, lazy players and
-            // size checks behave like a normal phone browser.
-            host.addView(wv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-            all += wv
-            pool.trySend(wv to client)
+        repeat(size) { pool.trySend(create()) }
+    }
+
+    private fun create(): Pair<WebView, Client> {
+        val wv = makeWebView(context)
+        val client = Client()
+        wv.webViewClient = client
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            // A page stuck in an endless script loop freezes the renderer (shared with the
+            // video player). Kill it; onRenderProcessGone then replaces the WebViews.
+            wv.setWebViewRenderProcessClient(object : android.webkit.WebViewRenderProcessClient() {
+                override fun onRenderProcessUnresponsive(view: WebView, renderer: android.webkit.WebViewRenderProcess?) { renderer?.terminate() }
+                override fun onRenderProcessResponsive(view: WebView, renderer: android.webkit.WebViewRenderProcess?) {}
+            })
         }
+        // Real on-screen size (behind the app UI) so layouts, lazy players and
+        // size checks behave like a normal phone browser.
+        host.addView(wv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        all += wv
+        return wv to client
+    }
+
+    /** Main thread: reset a WebView for the next page, or replace it if its renderer died. */
+    private fun recycle(wv: WebView, client: Client): Pair<WebView, Client> {
+        client.session = null
+        if (!client.dead) {
+            try {
+                wv.stopLoading()
+                wv.loadUrl("about:blank")
+                return wv to client
+            } catch (e: Throwable) { /* fall through and replace it */ }
+        }
+        all.remove(wv)
+        host.removeView(wv)
+        try { wv.destroy() } catch (e: Throwable) {}
+        return create()
     }
 
     suspend fun inspect(hit: Hit, staticProbe: Probe?): List<Video> {
@@ -88,6 +122,7 @@ class WebInspector(context: Context, host: ViewGroup, size: Int = 3) {
         try {
             sniffed = withContext(Dispatchers.Main) {
                 client.session = session
+                if (client.dead) return@withContext emptyList()
                 wv.loadUrl(hit.url)
                 delay(2200)
                 eval(wv, PRESS_JS)
@@ -105,12 +140,7 @@ class WebInspector(context: Context, host: ViewGroup, size: Int = 3) {
             }
         } finally {
             // Must run even when the search was cancelled, or the WebView never returns to the pool.
-            withContext(NonCancellable + Dispatchers.Main) {
-                client.session = null
-                wv.stopLoading()
-                wv.loadUrl("about:blank")
-            }
-            pool.trySend(wv to client)
+            pool.trySend(withContext(NonCancellable + Dispatchers.Main) { recycle(wv, client) })
         }
         if (probes.isEmpty()) probes = listOf(Probe(hit.url, hit.title))
 
@@ -136,14 +166,14 @@ class WebInspector(context: Context, host: ViewGroup, size: Int = 3) {
         try {
             return withContext(Dispatchers.Main) {
                 client.session = null
+                if (client.dead) return@withContext ""
                 wv.loadUrl(url)
                 delay(3500)
                 val raw = eval(wv, "document.documentElement.outerHTML", 5000)
                 (try { JSONTokener(raw ?: "").nextValue() as? String } catch (e: Exception) { null }) ?: ""
             }
         } finally {
-            withContext(NonCancellable + Dispatchers.Main) { wv.stopLoading(); wv.loadUrl("about:blank") }
-            pool.trySend(wv to client)
+            pool.trySend(withContext(NonCancellable + Dispatchers.Main) { recycle(wv, client) })
         }
     }
 

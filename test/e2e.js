@@ -105,6 +105,35 @@ function readSse(url) {
     }
   });
 
+  await step('parses REAL saved search pages (Bing, Bing Videos, YouTube, DuckDuckGo bot check)', async () => {
+    const zlib = require('zlib');
+    const real = (n) => zlib.gunzipSync(fs.readFileSync(path.join(__dirname, 'fixtures', 'real', n + '.html.gz'))).toString('utf8');
+    const realFetch = global.fetch;
+    const map = { 'html.duckduckgo.com': ['ddg', 202], 'www.bing.com/search': ['bing', 200], 'www.bing.com/videos': ['bingv', 200], 'www.youtube.com': ['yt', 200] };
+    global.fetch = async (url) => {
+      const [name, status] = map[Object.keys(map).find((k) => String(url).includes(k))];
+      return new Response(real(name), { status, headers: { 'content-type': 'text/html' } });
+    };
+    try {
+      const bing = await ENGINES.bing('volcano', 0);
+      assert.ok(bing.length >= 8 && bing.every((h) => /^https:\/\//.test(h.url) && h.title), `bing ${bing.length}`);
+      const bv = await ENGINES.bingVideos('volcano eruption', 0);
+      assert.ok(bv.length >= 8, `bing videos ${bv.length}`);
+      const yt = await ENGINES.youtube('volcano', 0);
+      assert.ok(yt.length >= 15 && yt.every((h) => /^[\w-]{11}$/.test(h.media.id) && h.title), `youtube ${yt.length}`);
+      assert.ok(yt.filter((h) => h.duration).length >= 10, 'youtube durations');
+      // DuckDuckGo's bot check (202) must fall back to the real browser, not silently give 0.
+      let browserCalls = 0;
+      const ddg = await ENGINES.duckduckgo('volcano', 0, async () => { browserCalls++; return ''; });
+      assert.equal(ddg.length, 0);
+      assert.equal(browserCalls, 1, 'fell back to the browser');
+      const parity = { bing: bing.length, bingVideos: bv.length, youtube: yt.length, youtubeFirst: yt[0].media.id, bingFirst: bing[0].url };
+      fs.writeFileSync(path.join(__dirname, 'fixtures', 'real', 'expected.json'), JSON.stringify(parity, null, 2));
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+
   await step('rewrites HLS playlists through the proxy', () => {
     const out = rewritePlaylist('#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"\nseg0.ts\nhttps://cdn.x/seg1.ts', 'https://h.com/v/index.m3u8', 'https://h.com/page');
     assert.match(out, /URI="\/proxy\?u=https%3A%2F%2Fh\.com%2Fv%2Fkey\.bin&r=/);

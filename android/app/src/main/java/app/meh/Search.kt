@@ -9,14 +9,24 @@ import java.net.URLEncoder
  * [fetch] gets a page's HTML; the app passes one that falls back to a real WebView
  * when a plain request is blocked.
  */
-class Search(private val fetch: (String) -> String) {
+class Search(private val plain: (String) -> String, private val browser: ((String) -> String)? = null) {
+
+    /**
+     * Fetch a results page and parse it. If the plain request was blocked, challenged or
+     * parses to nothing (bot check, JS-only page), load it in a real WebView and parse again.
+     */
+    private fun fetchHits(url: String, parse: (String) -> List<Hit>): List<Hit> {
+        val first = try { parse(plain(url)) } catch (e: Exception) { emptyList() }
+        if (first.isNotEmpty() || browser == null) return first
+        return try { parse(browser.invoke(url)) } catch (e: Exception) { emptyList() }
+    }
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
     fun duckduckgo(query: String, page: Int): List<Hit> {
         val url = "https://html.duckduckgo.com/html/?q=${enc("$query video")}" +
             if (page > 0) "&s=${page * 30}&dc=${page * 30 + 1}" else ""
-        val html = fetch(url)
+        return fetchHits(url) { html ->
         val hits = mutableListOf<Hit>()
         for (b in html.split(Regex("<div[^>]+class=\"[^\"]*\\bresult\\b[^\"]*\"", RegexOption.IGNORE_CASE)).drop(1)) {
             if ("result--ad" in b.take(200)) continue
@@ -27,11 +37,12 @@ class Search(private val fetch: (String) -> String) {
             val sn = Regex("class=\"[^\"]*result__snippet[^\"]*\"[^>]*>([\\s\\S]*?)</a>", RegexOption.IGNORE_CASE).find(b)
             hits += Hit(target, stripTags(a.groupValues[2]), sn?.let { stripTags(it.groupValues[1]) } ?: "")
         }
-        return hits
+        hits
+        }
     }
 
     fun bing(query: String, page: Int): List<Hit> {
-        val html = fetch("https://www.bing.com/search?q=${enc("$query video")}&count=30&first=${page * 30 + 1}")
+        return fetchHits("https://www.bing.com/search?q=${enc("$query video")}&count=30&first=${page * 30 + 1}") { html ->
         val hits = mutableListOf<Hit>()
         for (b in html.split(Regex("<li[^>]+class=\"b_algo\"", RegexOption.IGNORE_CASE)).drop(1)) {
             val a = Regex("<h2[^>]*>\\s*<a[^>]+href=\"([^\"]+)\"[^>]*>([\\s\\S]*?)</a>", RegexOption.IGNORE_CASE).find(b) ?: continue
@@ -39,12 +50,13 @@ class Search(private val fetch: (String) -> String) {
             val sn = Regex("<p[^>]*>([\\s\\S]*?)</p>", RegexOption.IGNORE_CASE).find(b)
             hits += Hit(target, stripTags(a.groupValues[2]), sn?.let { stripTags(it.groupValues[1]) } ?: "")
         }
-        return hits
+        hits
+        }
     }
 
     /** Bing Videos indexes video pages from all over the web. */
     fun bingVideos(query: String, page: Int): List<Hit> {
-        val raw = fetch("https://www.bing.com/videos/search?q=${enc(query)}&first=${page * 35 + 1}")
+        return fetchHits("https://www.bing.com/videos/search?q=${enc(query)}&first=${page * 35 + 1}") { raw ->
         val html = decodeEntities(raw).replace(Regex("\\\\u002f", RegexOption.IGNORE_CASE), "/").replace("\\/", "/")
         val hits = mutableListOf<Hit>()
         val seen = HashSet<String>()
@@ -52,26 +64,27 @@ class Search(private val fetch: (String) -> String) {
             val target = cleanHitUrl(m.groupValues[1]) ?: continue
             if (!seen.add(target)) continue
             val ctx = html.substring(maxOf(0, m.range.first - 1500), minOf(html.length, m.range.last + 1500))
-            val vt = Regex("\"vt\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").find(ctx)?.groupValues?.get(1)
+            val vt = Regex("\"vt\"\\s*:\\s*\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"").find(ctx)?.groupValues?.get(1)
             val du = Regex("\"du\"\\s*:\\s*\"([\\d:]+)\"").find(ctx)?.groupValues?.get(1)
             hits += Hit(target, vt?.let { stripTags(it) } ?: "", "", parseDuration(du))
         }
-        return hits
+        hits
+        }
     }
 
     fun youtube(query: String, page: Int): List<Hit> {
         if (page > 0) return emptyList()
-        val html = fetch("https://www.youtube.com/results?search_query=${enc(query)}")
+        return fetchHits("https://www.youtube.com/results?search_query=${enc(query)}") { html ->
         val hits = mutableListOf<Hit>()
         val seen = HashSet<String>()
         for (chunk in html.split("\"videoRenderer\":{").drop(1)) {
             val id = Regex("^\"videoId\":\"([\\w-]{11})\"").find(chunk)?.groupValues?.get(1) ?: continue
             if (!seen.add(id)) continue
             val body = chunk.take(6000)
-            val title = unescapeJsonString(Regex("\"title\":\\{\"runs\":\\[\\{\"text\":\"((?:[^\"\\\\]|\\\\.)*)\"").find(body)?.groupValues?.get(1) ?: "")
+            val title = unescapeJsonString(Regex("\"title\":\\{\"runs\":\\[\\{\"text\":\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"").find(body)?.groupValues?.get(1) ?: "")
             val len = Regex("\"lengthText\":\\{[\\s\\S]{0,300}?\"simpleText\":\"([\\d:]+)\"").find(body)?.groupValues?.get(1)
-            val desc = unescapeJsonString(Regex("\"(?:descriptionSnippet|detailedMetadataSnippets)\"[\\s\\S]{0,200}?\"text\":\"((?:[^\"\\\\]|\\\\.)*)\"").find(body)?.groupValues?.get(1) ?: "")
-            val channel = unescapeJsonString(Regex("\"ownerText\":\\{\"runs\":\\[\\{\"text\":\"((?:[^\"\\\\]|\\\\.)*)\"").find(body)?.groupValues?.get(1) ?: "")
+            val desc = unescapeJsonString(Regex("\"(?:descriptionSnippet|detailedMetadataSnippets)\"[\\s\\S]{0,200}?\"text\":\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"").find(body)?.groupValues?.get(1) ?: "")
+            val channel = unescapeJsonString(Regex("\"ownerText\":\\{\"runs\":\\[\\{\"text\":\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"").find(body)?.groupValues?.get(1) ?: "")
             val pageUrl = "https://www.youtube.com/watch?v=$id"
             val dur = parseDuration(len)
             hits += Hit(
@@ -84,7 +97,8 @@ class Search(private val fetch: (String) -> String) {
                 ),
             )
         }
-        return hits
+        hits
+        }
     }
 
     /** Run every engine in parallel and merge round-robin so no engine dominates. */

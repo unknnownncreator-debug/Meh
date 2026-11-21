@@ -60,10 +60,17 @@ object Http {
         .header("Cookie", "CONSENT=YES+1; SOCS=CAI")
         .build()
 
-    /** GET a page as text, or "" if blocked / failed / tiny. */
-    fun getHtml(url: String): String = try {
+    /**
+     * GET a page as text (at most [limit] bytes), or "" if blocked / failed.
+     * Only 200 counts: DuckDuckGo answers bots with "202 Accepted" and a challenge page.
+     */
+    fun getHtml(url: String, limit: Long = 4_000_000): String = try {
         client.newCall(pageRequest(url)).execute().use { res ->
-            if (!res.isSuccessful) "" else (res.body?.string() ?: "").takeIf { it.length > 2000 } ?: ""
+            val src = res.body?.source()
+            if (res.code != 200 || src == null) "" else {
+                src.request(limit)
+                src.buffer.readUtf8(minOf(src.buffer.size, limit))
+            }
         }
     } catch (e: Exception) { "" }
 }

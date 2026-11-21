@@ -80,12 +80,20 @@ Other controls:
 ## Tests
 
 ```bash
-npm test
+npm test          # end-to-end: fixture site → inspection → ranking → proxy → real browser playback
+npm run stress    # hostile web + fuzzing + concurrency (about 2 minutes)
+cd android && ./gradlew testDebugUnitTest   # Android engine: unit + stress tests on the JVM
 ```
 
-The test needs `ffmpeg`, which it uses to generate sample videos. It starts a local fixture site whose pages hide video in different ways: a plain `<video>` tag, JSON-LD, a JavaScript player that loads an HLS stream, an embedded YouTube iframe, an ad-only page and a text-only page. It checks that:
-- inspection finds the right videos and ignores the ad,
-- ranking puts the best match first,
-- the proxy handles range requests and HLS playlist rewriting,
-- in a real browser, the app autoplays, advances on end, and handles `N` and `P` correctly,
-- the layout works at phone width.
+The tests need `ffmpeg`, which they use to generate sample videos.
+
+- **`npm test`** starts a local fixture site whose pages hide video in different ways: a plain `<video>` tag, JSON-LD, a JavaScript player that loads an HLS stream, an embedded YouTube iframe, an ad-only page and a text-only page. It also parses **real saved result pages** from Bing, Bing Videos, YouTube and DuckDuckGo's bot check (`test/fixtures/real/`).
+- **`npm run stress`** points the search at a deliberately hostile "web" and checks that every search still finishes, stays within memory, and finds the real videos. The hostile pages include:
+  - servers that never answer, send data a byte at a time, or never stop sending,
+  - redirect loops, error pages and binary junk,
+  - scripts stuck in an infinite loop, and alert/popup spam,
+  - 300-video pages, 25 MB pages and data nested 200,000 levels deep,
+  - an endless video file, to check sniffing never downloads it.
+
+  It also fuzzes every parser with 3,000 random pages, runs 8 searches at once, checks that closing the app mid-search stops the work, and abuses the proxy.
+- **Android tests** run the same real search pages through the Kotlin engine and require the same results as the desktop version. They also cover pathological and fuzzed HTML and a hostile local server.

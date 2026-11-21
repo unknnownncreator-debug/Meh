@@ -28,9 +28,7 @@ class Engine(private val scope: CoroutineScope, private val web: WebInspector) {
     private var job: Job? = null
     val busy get() = job?.isActive == true
 
-    private val search = Search { url ->
-        Http.getHtml(url).ifEmpty { runBlocking { web.fetchHtml(url) } }
-    }
+    private val search = Search(Http::getHtml) { url -> runBlocking { web.fetchHtml(url) } }
 
     fun cancel() { job?.cancel(); job = null }
 

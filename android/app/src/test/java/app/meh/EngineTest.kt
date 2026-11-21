@@ -42,7 +42,7 @@ class EngineTest {
             "www.bing.com/videos" to """$pad<div class="vrhdata" vrhm='{&quot;du&quot;:&quot;4:13&quot;,&quot;murl&quot;:&quot;https://c.net/clip/9&quot;,&quot;vt&quot;:&quot;Volcano clip&quot;}'></div>""",
             "www.youtube.com" to """${pad}var ytInitialData = {"videoRenderer":{"videoId":"abcdefghijk","thumbnail":{},"title":{"runs":[{"text":"Volcano & lava"}]},"lengthText":{"accessibility":{"x":{}},"simpleText":"12:05"}}};""",
         )
-        val s = Search { url -> pages.entries.firstOrNull { url.contains(it.key) }?.value ?: "" }
+        val s = Search({ url -> pages.entries.firstOrNull { url.contains(it.key) }?.value ?: "" })
         s.duckduckgo("volcano", 0)[0].let { assertEquals(listOf("https://a.com/volcano", "Volcano video", "Lava!"), listOf(it.url, it.title, it.snippet)) }
         assertEquals("https://b.org/eruption", s.bing("volcano", 0)[0].url)
         s.bingVideos("volcano", 0)[0].let { assertEquals("https://c.net/clip/9", it.url); assertEquals("Volcano clip", it.title); assertEquals(253.0, it.duration!!, 0.0) }

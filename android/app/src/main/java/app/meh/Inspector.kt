@@ -56,30 +56,92 @@ object Inspector {
         return decodeEntities(g[2].ifEmpty { g[3] }.ifEmpty { g[4] })
     }
 
-    fun parseStaticHtml(html: String, baseUrl: String): Probe {
-        val title = Regex("<title[^>]*>([\\s\\S]*?)</title>", IC).find(html)?.let { stripTags(it.groupValues[1]) } ?: ""
+    private class Tag(val tag: String, val attrs: String, val inner: String)
+
+    /**
+     * Linear-time tag scanner. Regexes like <video[^>]*>([\s\S]*?)</video> go quadratic on
+     * pages with many unclosed tags, so attributes are length-bounded and the next closing
+     * tag is looked up once and reused.
+     */
+    private fun scanTags(html: String, lower: String, tag: String, maxInner: Int = 0, limit: Int = 2000): List<Tag> {
+        val out = ArrayList<Tag>()
+        val open = Regex("<$tag\\b([^>]{0,4000})>", IC)
+        val closeTag = "</$tag"
+        var close = -2
+        var m = open.find(html)
+        while (m != null && out.size < limit) {
+            var inner = ""
+            if (maxInner > 0) {
+                val from = m.range.last + 1
+                if (close != -1 && close < from) close = lower.indexOf(closeTag, from)
+                if (close >= 0 && close - from <= maxInner) inner = html.substring(from, close)
+            }
+            out += Tag(m.value, m.groupValues[1], inner)
+            m = m.next()
+        }
+        return out
+    }
+
+    /** Remove <script>/<style>/<noscript> blocks in one pass. */
+    private fun stripBlocks(html: String, lower: String): String {
+        val sb = StringBuilder()
+        val re = Regex("<(script|style|noscript)\\b", IC)
+        val nextClose = HashMap<String, Int>()
+        var pos = 0
+        var m = re.find(html)
+        while (m != null) {
+            if (m.range.first >= pos) {
+                val name = m.groupValues[1].lowercase()
+                sb.append(html, pos, m.range.first).append(' ')
+                var c = nextClose[name]
+                if (c == null || (c != -1 && c < m.range.first)) { c = lower.indexOf("</$name", m.range.first); nextClose[name] = c }
+                if (c == -1) { pos = html.length; break }
+                pos = c + name.length + 2
+                if (pos >= html.length) break
+                m = re.find(html, pos)
+            } else m = m.next()
+        }
+        if (pos < html.length) sb.append(html, pos, html.length)
+        return sb.toString()
+    }
+
+    private fun px(v: String?): Double? =
+        if (v != null && Regex("^\\s*\\d+(\\.\\d+)?(px)?\\s*$", IC).matches(v)) v.trim().removeSuffix("px").toDoubleOrNull()?.takeIf { it > 0 } else null
+
+    fun parseStaticHtml(rawHtml: String, baseUrl: String): Probe {
+        val html = if (rawHtml.length > 3_000_000) rawHtml.substring(0, 3_000_000) else rawHtml
+        val lower = html.lowercase()
+        var title = ""
+        val ti = lower.indexOf("<title")
+        if (ti >= 0) {
+            val start = lower.indexOf('>', ti) + 1
+            val end = lower.indexOf("</title", start)
+            if (start > 0 && end > start && end - start < 5000) title = stripTags(html.substring(start, end))
+        }
         val metas = LinkedHashMap<String, String>()
-        for (m in Regex("<meta\\b[^>]*>", IC).findAll(html)) {
-            val tag = m.value
-            val key = (attr(tag, "property") ?: attr(tag, "name") ?: attr(tag, "itemprop") ?: "").lowercase()
-            val v = attr(tag, "content")
+        for (t in scanTags(html, lower, "meta")) {
+            val key = (attr(t.tag, "property") ?: attr(t.tag, "name") ?: attr(t.tag, "itemprop") ?: "").lowercase()
+            val v = attr(t.tag, "content")
             if (key.isNotEmpty() && !v.isNullOrEmpty() && key !in metas) metas[key] = v
         }
-        val ld = Regex("<script[^>]+type=[\"']application/ld\\+json[\"'][^>]*>([\\s\\S]*?)</script>", IC).findAll(html).map { it.groupValues[1] }.toList()
-        val videos = Regex("<video\\b([^>]*)>([\\s\\S]*?)</video>", IC).findAll(html).map { m ->
-            val sources = Regex("<source\\b[^>]*>", IC).findAll(m.groupValues[2]).mapNotNull { s ->
-                absolute(attr(s.value, "src"), baseUrl)?.let { it to (attr(s.value, "type") ?: "") }
-            }.toList()
-            ProbeVideo(absolute(attr(m.groupValues[1], "src"), baseUrl), sources, absolute(attr(m.groupValues[1], "poster"), baseUrl), null, null, null)
-        }.toList()
-        val iframes = Regex("<iframe\\b[^>]*>", IC).findAll(html).mapNotNull { absolute(attr(it.value, "src") ?: attr(it.value, "data-src"), baseUrl) }.toList()
-        val body = Regex("<body[\\s\\S]*$", IC).find(html)?.value ?: html
-        val text = stripTags(body.replace(Regex("<(script|style|noscript)[\\s\\S]*?</\\1>", IC), " ")).take(3000)
+        val ld = scanTags(html, lower, "script", 2_000_000)
+            .filter { Regex("type\\s*=\\s*[\"']?application/ld\\+json", IC).containsMatchIn(it.attrs) && it.inner.isNotEmpty() }
+            .take(30).map { it.inner }
+        val videos = scanTags(html, lower, "video", 20_000, 300).map { t ->
+            val sources = scanTags(t.inner, t.inner.lowercase(), "source").mapNotNull { s ->
+                absolute(attr(s.tag, "src"), baseUrl)?.let { it to (attr(s.tag, "type") ?: "") }
+            }
+            ProbeVideo(absolute(attr(t.attrs, "src"), baseUrl), sources, absolute(attr(t.attrs, "poster"), baseUrl), null, px(attr(t.attrs, "width")), px(attr(t.attrs, "height")))
+        }
+        val iframes = scanTags(html, lower, "iframe", 0, 300).mapNotNull { absolute(attr(it.tag, "src") ?: attr(it.tag, "data-src"), baseUrl) }
+        val bodyAt = lower.indexOf("<body")
+        val body = (if (bodyAt >= 0) html.substring(bodyAt) else html).let { if (it.length > 600_000) it.substring(0, 600_000) else it }
+        val text = stripTags(stripBlocks(body, body.lowercase())).take(3000)
         return Probe(baseUrl, title, metas, ld, videos, iframes, text)
     }
 
     /** Parse the JSON produced by [WebInspector.PROBE_JS] in a live page. */
-    fun parseProbeJson(json: String): Probe? = try {
+    fun parseProbeJson(json: String): Probe? = if (json.length > 8_000_000) null else try {
         val o = JSONObject(json)
         val metas = LinkedHashMap<String, String>()
         o.optJSONObject("metas")?.let { m -> m.keys().forEach { k -> metas[k] = m.optString(k) } }
@@ -103,19 +165,21 @@ object Inspector {
             iframes = o.optJSONArray("iframes").strings(),
             text = o.optString("text"),
         )
-    } catch (e: Exception) { null }
+    } catch (e: Throwable) { null }
 
     private fun JSONArray?.strings(): List<String> = if (this == null) emptyList() else (0 until length()).map { optString(it) }
 
     // ------------------------------------------------------------------ candidates
 
-    private fun flattenLd(node: Any?, acc: MutableList<JSONObject>) {
+    private fun flattenLd(node: Any?, acc: MutableList<JSONObject>, depth: Int = 0) {
+        // Hostile or broken pages can nest data thousands of levels deep.
+        if (depth > 40 || acc.size > 50) return
         when (node) {
-            is JSONArray -> for (i in 0 until node.length()) flattenLd(node.opt(i), acc)
+            is JSONArray -> for (i in 0 until minOf(node.length(), 500)) flattenLd(node.opt(i), acc, depth + 1)
             is JSONObject -> {
                 val t = node.opt("@type").let { if (it is JSONArray) it.strings().joinToString(",") else it?.toString() ?: "" }
                 if (Regex("VideoObject|Clip|Movie|Episode", IC).containsMatchIn(t) && (node.has("contentUrl") || node.has("embedUrl"))) acc += node
-                for (k in node.keys()) if (k != "@context") node.opt(k).let { if (it is JSONObject || it is JSONArray) flattenLd(it, acc) }
+                for (k in node.keys().asSequence().take(200)) if (k != "@context") node.opt(k).let { if (it is JSONObject || it is JSONArray) flattenLd(it, acc, depth + 1) }
             }
         }
     }
@@ -141,8 +205,10 @@ object Inspector {
     fun candidatesFromProbe(p: Probe): List<Candidate> {
         val out = mutableListOf<Candidate>()
         val base = p.url
-        for (block in p.ld) {
-            val data = try { JSONTokener(block.trim()).nextValue() } catch (e: Exception) { continue }
+        for (block in p.ld.take(30)) {
+            if (block.length > 2_000_000) continue
+            // Throwable, not Exception: a deeply nested document overflows the parser's stack.
+            val data = try { JSONTokener(block.trim()).nextValue() } catch (e: Throwable) { continue }
             val vids = mutableListOf<JSONObject>()
             flattenLd(data, vids)
             for (v in vids) {

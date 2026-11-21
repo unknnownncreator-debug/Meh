@@ -166,6 +166,10 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
 
     /** Android 15 draws edge-to-edge: pad the UI clear of the status bar, nav bar and keyboard. */
     private fun applyInsets() {
+        // Draw edge-to-edge on every Android version (15+ forces it anyway), so the
+        // padding below is always the only thing keeping content clear of the bars.
+        if (Build.VERSION.SDK_INT >= 30) window.setDecorFitsSystemWindows(false)
+        else @Suppress("DEPRECATION") { window.decorView.systemUiVisibility = LAYOUT_FLAGS }
         val app = findViewById<View>(R.id.app)
         app.setOnApplyWindowInsetsListener { v, insets ->
             if (fullscreen) v.setPadding(0, 0, 0, 0)
@@ -402,8 +406,8 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
             }
         } else {
             @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = if (on) (View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE) else 0
+            window.decorView.systemUiVisibility = if (on) (LAYOUT_FLAGS or View.SYSTEM_UI_FLAG_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY) else LAYOUT_FLAGS
         }
         findViewById<View>(R.id.app).requestApplyInsets()
     }
@@ -517,6 +521,11 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
         val s = d.roundToInt()
         val h = s / 3600; val m = (s % 3600) / 60; val sec = s % 60
         return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%d:%02d".format(m, sec)
+    }
+
+    companion object {
+        @Suppress("DEPRECATION")
+        private const val LAYOUT_FLAGS = View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
     }
 
     private fun hideKeyboard() {

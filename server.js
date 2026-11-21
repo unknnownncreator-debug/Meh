@@ -14,8 +14,13 @@ const PORT = +process.env.PORT || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
 const CONCURRENCY = +process.env.MEH_CONCURRENCY || 5;
 const MAX_PAGES = +process.env.MEH_MAX_PAGES || 40;
-// Testing hook: skip web search and inspect these URLs instead (comma-separated).
-const TEST_PAGES = process.env.MEH_TEST_PAGES ? process.env.MEH_TEST_PAGES.split(',').filter(Boolean) : null;
+// Testing hook: when MEH_TEST_PAGES is set, skip web search and inspect these URLs
+// instead (comma-separated). In that mode a request may also pass its own ?testpages=.
+function testPages(query) {
+  if (process.env.MEH_TEST_PAGES === undefined) return null;
+  const list = (query.get('testpages') || process.env.MEH_TEST_PAGES).split(',').filter(Boolean);
+  return list.length ? list : null;
+}
 
 const PUBLIC = path.join(__dirname, 'public');
 const STATIC = {
@@ -72,6 +77,7 @@ async function handleSearch(req, res, query) {
 
   try {
     status('Searching the web…');
+    const TEST_PAGES = testPages(query);
     const hits = TEST_PAGES
       ? TEST_PAGES.map((url, rank) => ({ url, title: '', snippet: '', engine: 'test', rank }))
       : await searchWeb(q, {
