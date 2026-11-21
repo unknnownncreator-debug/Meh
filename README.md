@@ -4,7 +4,20 @@ Type anything. **meh** searches the web like Google does, opens the result pages
 
 No API keys and no accounts.
 
-## Run it
+## Android app
+
+**Install:** download [`meh.apk`](meh.apk) on your phone and open it. Android will ask you to allow installs from your browser or file manager. Allow it, then tap **Install**.
+
+The app does everything on the phone, with no computer or server needed:
+- It searches the same engines as the desktop version.
+- It inspects result pages with hidden Android WebViews. They open each page, press play, and record the video requests the page makes. Those requests are then blocked, so nothing plays out loud in the background.
+- Video files and HLS streams play in Android's own video player (ExoPlayer), which sends the right `Referer` header. YouTube, Vimeo and Dailymotion play in their own embedded players.
+- Turn the phone sideways, or tap the corner button, for full screen. Back exits full screen and then goes home.
+- You can share text from any app to **meh** to search for it.
+
+**Build it yourself:** in `android/`, run `./gradlew assembleRelease`. You need the Android SDK (platform 35, build-tools 35.0.0) and JDK 17 or newer. The signing key `android/app/meh.keystore` is kept in the repo on purpose, so every build installs over the previous one.
+
+## Run it on a computer
 
 You need [Node.js](https://nodejs.org) 18 or newer.
 

@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">meh</string>
+    <string name="hint">Type anything — it finds the videos and plays them</string>
+    <string name="tagline">Searches the whole web, finds the videos on each page, and plays them back to back.</string>
+</resources>
