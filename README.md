@@ -38,7 +38,7 @@ Then open **http://localhost:3000**, type something, and press Enter.
 2. **Inspect** (`lib/inspector.js`). Each result page (up to 40, five at a time) is examined in two stages:
    - **Static HTML.** Reads what the page declares: `og:video` and Twitter player tags, JSON-LD `VideoObject` data, `<video>` and `<source>` tags, and embedded Vimeo or Dailymotion players. This is fast and needs no browser.
    - **Live browser.** If nothing was declared, the page is opened in headless Chromium. The browser scrolls, presses play, and watches the network for video files (`.mp4`, `.webm`) and HLS streams (`.m3u8`). It then reads the live DOM of every frame. This catches players that load their video with JavaScript.
-   - Ad networks are blocked, and pre-rolls, tiny hidden videos and clips under 20 seconds are discarded.
+   - Ad networks are blocked, and tiny hidden videos are discarded. See **Ads** below for how pre-roll ads are kept out.
 3. **Rank** (`lib/ranker.js`). Each video gets a relevance score from 0 to 100. The score depends on how much of your query appears in the video's title (weighted highest), the page title, the description and the text around the video. Phrase matches and the search engine's own ranking add bonuses. The player also spreads sites out so one domain doesn't take over the queue.
 4. **Play** (`public/app.js`). Results stream to the page live, so the first video starts within seconds while the rest of the web is still being inspected.
    - Direct video files play in the built-in player.
@@ -46,6 +46,16 @@ Then open **http://localhost:3000**, type something, and press Enter.
    - Vimeo pages use their own embedded player, so the app knows when a video ends.
    - Video is streamed through the local server (`lib/proxy.js`) with the right `Referer` header, so sites that block other players still work.
    - When a video ends, the next one starts. A video that fails to load is skipped. When the queue runs low, the next page of search results is fetched.
+
+## Ads
+
+Players usually request their **pre-roll ad first** and the real video only after the ad. Without care, the app would take the ad for the video, play it, and move on. Several layers prevent that:
+
+1. **Keep watching.** While inspecting a page, the app blocks every video download it sees. That makes most players give up on the ad and load the real video, so the app keeps watching after the first request instead of stopping there. Later requests are preferred.
+2. **Ad containers.** Videos inside ad slots on the page (IMA, VAST/VPAID, `ad-container`, `preroll`, `advert`, …) are rejected, and so are frames served from ad networks.
+3. **Real length.** The app reads each video's actual length from the start of the file (MP4 `mvhd` header, WebM `Duration`, or the HLS segment list) without downloading it (`lib/media.js`, `MediaProbe.kt`). Videos found in a page or on the network must be **at least 45 seconds**; the site's own declared video (JSON-LD / `og:video`) is trusted down to 20 seconds. If the page says its video is, say, 5 minutes long, a clip shorter than half that is rejected.
+4. **At play time.** If a found video's length couldn't be read up front and it turns out to be under 45 seconds once it loads, it's skipped instead of played.
+5. **Known ad servers** are blocked outright. The page being inspected is never blocked itself, even if its address contains words like "preroll".
 
 ## Excluded sites
 
@@ -91,7 +101,7 @@ cd android && ./gradlew testDebugUnitTest   # Android engine: unit + stress test
 
 The tests need `ffmpeg`, which they use to generate sample videos.
 
-- **`npm test`** starts a local fixture site whose pages hide video in different ways: a plain `<video>` tag, JSON-LD, a JavaScript player that loads an HLS stream, an embedded Vimeo iframe, YouTube-only and TikTok-only pages (which must yield nothing), an ad-only page and a text-only page. It also parses **real saved result pages** from Bing, Bing Videos, and the Google and DuckDuckGo bot checks (`test/fixtures/real/`).
+- **`npm test`** starts a local fixture site whose pages hide video in different ways: a plain `<video>` tag, JSON-LD, a JavaScript player that loads an HLS stream, an embedded Vimeo iframe, YouTube-only and TikTok-only pages (which must yield nothing), pre-roll ad players (ad then video, ad only, IMA-style ad container, page declaring a longer video), an ad-only page and a text-only page. A browser check confirms an ad-length video is skipped at play time. It also parses **real saved result pages** from Bing, Bing Videos, and the Google and DuckDuckGo bot checks (`test/fixtures/real/`).
 - **`npm run stress`** points the search at a deliberately hostile "web" and checks that every search still finishes, stays within memory, and finds the real videos. The hostile pages include:
   - servers that never answer, send data a byte at a time, or never stop sending,
   - redirect loops, error pages and binary junk,

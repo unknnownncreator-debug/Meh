@@ -13,6 +13,8 @@ data class Probe(
     val videos: List<ProbeVideo> = emptyList(),
     val iframes: List<String> = emptyList(),
     val text: String = "",
+    /** Read from the live page in a WebView (vs. the raw HTML). */
+    val live: Boolean = false,
 )
 
 data class ProbeVideo(
@@ -22,6 +24,8 @@ data class ProbeVideo(
     val duration: Double?,
     val w: Double?,
     val h: Double?,
+    /** Sits inside an ad container (IMA / VAST / ad slot) on the live page. */
+    val ad: Boolean = false,
 )
 
 data class Candidate(
@@ -38,6 +42,9 @@ data class Candidate(
     val duration: Double? = null,
     val size: Long = 0,
     val tooSmall: Boolean = false,
+    val ad: Boolean = false,
+    /** Order in which the page requested it (network sniffing): players load the ad first. */
+    val seq: Int = 0,
 )
 
 /**
@@ -46,7 +53,13 @@ data class Candidate(
  * picks the best one. The live-browser part is in [WebInspector].
  */
 object Inspector {
+    // Shortest video we accept (seconds). Sites' own declarations (JSON-LD / og:video) are
+    // trusted down to 20 s; anything found in the page body or sniffed from the network must
+    // be at least 45 s, because pre-roll ads are typically 6–30 s.
     const val MIN_DURATION = 20.0
+    const val MIN_FOUND_DURATION = 45.0
+
+    fun minDuration(c: Candidate) = if (c.origin == "jsonld" || c.origin == "og" || c.origin == "page") MIN_DURATION else MIN_FOUND_DURATION
 
     private val IC = RegexOption.IGNORE_CASE
 
@@ -160,10 +173,12 @@ object Inspector {
                     v.optDouble("duration").takeIf { !it.isNaN() && it > 0 },
                     v.optDouble("w").takeIf { !it.isNaN() },
                     v.optDouble("h").takeIf { !it.isNaN() },
+                    v.optBoolean("ad", false),
                 )
             },
             iframes = o.optJSONArray("iframes").strings(),
             text = o.optString("text"),
+            live = true,
         )
     } catch (e: Throwable) { null }
 
@@ -193,12 +208,12 @@ object Inspector {
 
     private fun candidateFromUrl(src: String?, base: String, origin: String, referer: String, type: String = "",
                                  title: String = "", description: String = "", thumbnail: String? = null,
-                                 duration: Double? = null, tooSmall: Boolean = false): Candidate? {
+                                 duration: Double? = null, tooSmall: Boolean = false, ad: Boolean = false): Candidate? {
         val url = absolute(src, base) ?: return null
         if (url.startsWith("blob:") || url.startsWith("data:") || isAdUrl(url)) return null
         embedFromUrl(url)?.let { return Candidate("embed", url, origin, referer, it.provider, it.id, type, title, description, thumbnail, duration) }
         val kind = mediaKindFromUrl(url, type)
-        if (kind == "file" || kind == "hls") return Candidate(kind, url, origin, referer, null, null, type, title, description, thumbnail, duration, tooSmall = tooSmall)
+        if (kind == "file" || kind == "hls") return Candidate(kind, url, origin, referer, null, null, type, title, description, thumbnail, duration, tooSmall = tooSmall, ad = ad)
         return null
     }
 
@@ -227,9 +242,10 @@ object Inspector {
             candidateFromUrl(m[k], base, "og", base, ogType, duration = ogDur)?.let { out += it }
         }
         for (v in p.videos) {
-            val small = v.w != null && v.w > 0 && (v.w < 200 || (v.h ?: 0.0) < 110)
+            // Only sizes we actually know count: a missing height is unknown, not zero.
+            val small = (v.w != null && v.w > 0 && v.w < 200) || (v.h != null && v.h > 0 && v.h < 110)
             for ((src, type) in listOf((v.src ?: "") to "") + v.sources) {
-                candidateFromUrl(src, base, "dom", base, type, thumbnail = absolute(v.poster, base), duration = v.duration, tooSmall = small)?.let { out += it }
+                candidateFromUrl(src, base, if (p.live) "live" else "dom", base, type, thumbnail = absolute(v.poster, base), duration = v.duration, tooSmall = small, ad = v.ad)?.let { out += it }
             }
         }
         for (src in p.iframes) embedFromUrl(src)?.let { out += Candidate("embed", src, "iframe", base, it.provider, it.id) }
@@ -237,9 +253,11 @@ object Inspector {
     }
 
     private fun scoreCandidate(c: Candidate): Int {
-        if (c.duration != null && c.duration < MIN_DURATION) return -1
-        if (c.tooSmall) return -1
-        var s = when (c.origin) { "page" -> 60; "jsonld" -> 50; "og" -> 45; "dom" -> 40; "network" -> 35; "iframe" -> 30; else -> 20 }
+        if (c.duration != null && c.duration < minDuration(c)) return -1
+        if (c.tooSmall || c.ad) return -1
+        var s = when (c.origin) { "page" -> 60; "jsonld" -> 50; "og" -> 45; "dom", "live" -> 40; "network" -> 35; "iframe" -> 30; else -> 20 }
+        // Players load the ad first and the real video after it: later network requests win ties.
+        if (c.origin == "network" && c.seq > 0) s += minOf(c.seq, 4)
         if (c.kind == "hls") s += 4
         if (c.size > 2_000_000) s += 6
         if (c.kind == "file" && c.size in 1..299_999) s -= 25
@@ -247,29 +265,52 @@ object Inspector {
         return s
     }
 
-    /** Pick the best distinct media on a page and attach page-level metadata. */
-    fun finalize(hit: Hit, main: Probe, cands: List<Candidate>): List<Video> {
+    /**
+     * Pick the best distinct media on a page and attach page-level metadata. Candidates whose
+     * length is unknown get it read from the file itself ([prober]), so a short pre-roll ad
+     * can't pass for the real video. Blocking when probing: call off the main thread.
+     */
+    fun finalize(hit: Hit, main: Probe, cands: List<Candidate>, prober: ((Candidate) -> Double?)? = MediaProbe::probeDuration): List<Video> {
         val m = main.metas
         val pageTitle = m["og:title"] ?: m["twitter:title"] ?: main.title.ifEmpty { hit.title }
         val pageDesc = (m["og:description"] ?: m["description"] ?: m["twitter:description"] ?: hit.snippet).take(400)
         val pageThumb = absolute(m["og:image"] ?: m["twitter:image"] ?: m["thumbnailurl"], main.url)
         val siteName = m["og:site_name"] ?: domainOf(main.url.ifEmpty { hit.url })
 
-        val byKey = LinkedHashMap<String, Pair<Candidate, Int>>()
+        val byKey = LinkedHashMap<String, Candidate>()
         for (c in cands) {
             if (c.provider == "youtube" || isBlockedSite(c.src)) continue // e.g. a YouTube/TikTok player embedded in an article
             val key = if (c.kind == "embed") "${c.provider}:${c.id}" else c.src.substringBefore('?').substringBefore('#')
-            val s = scoreCandidate(c)
-            if (s < 0) continue
             val prev = byKey[key]
-            byKey[key] = if (prev == null) c to s else {
-                val p = prev.first
-                p.copy(title = p.title.ifEmpty { c.title }, thumbnail = p.thumbnail ?: c.thumbnail, duration = p.duration ?: c.duration) to maxOf(prev.second, s)
-            }
+            // Merge duplicates, keeping the most trustworthy origin and any metadata either has.
+            byKey[key] = if (prev == null) c else (if (scoreCandidate(c) > scoreCandidate(prev)) c else prev).copy(
+                title = prev.title.ifEmpty { c.title }, thumbnail = prev.thumbnail ?: c.thumbnail, duration = prev.duration ?: c.duration,
+                ad = prev.ad || c.ad, seq = maxOf(prev.seq, c.seq),
+            )
         }
-        val sorted = byKey.values.sortedByDescending { it.second }.map { it.first }
-        val multi = sorted.filter { it.origin == "jsonld" && it.title.isNotEmpty() }
-        val chosen = if (multi.size > 1) multi.take(3) else sorted.take(1)
+        // How long the page itself says its video is (JSON-LD / og:video:duration).
+        val declared = (byKey.values.filter { (it.origin == "jsonld" || it.origin == "og") && it.duration != null }.mapNotNull { it.duration } +
+            listOfNotNull(parseDuration(m["og:video:duration"] ?: m["video:duration"]))).maxOrNull() ?: 0.0
+
+        val ranked = byKey.values.map { it to scoreCandidate(it) }.filter { it.second >= 0 }.sortedByDescending { it.second }.map { it.first }
+        var probes = 0
+        fun acceptable(c0: Candidate): Candidate? {
+            if (c0.kind == "embed") return c0
+            var c = c0
+            if (c.duration == null && prober != null && probes < 6) { probes++; c = c.copy(duration = prober(c)) }
+            val d = c.duration
+            if (d != null && d < minDuration(c)) return null                     // too short: ad / teaser
+            if (declared >= 60 && d != null && d < declared * 0.5) return null   // page says its video is much longer
+            return c
+        }
+        // Several distinct JSON-LD videos = a page that lists many videos; otherwise one per page.
+        val multi = ranked.filter { it.origin == "jsonld" && it.title.isNotEmpty() }
+        val want = if (multi.size > 1) 3 else 1
+        val chosen = mutableListOf<Candidate>()
+        for (c in (if (multi.size > 1) multi else ranked).take(8)) {
+            acceptable(c)?.let { chosen += it }
+            if (chosen.size >= want) break
+        }
         return chosen.map { c ->
             Video(
                 kind = c.kind, src = c.src, provider = c.provider, id = c.id,

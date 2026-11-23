@@ -156,7 +156,7 @@ class StressTest {
         val html = "<html><head><script type=\"application/ld+json\">" + "[".repeat(100_000) + "]".repeat(100_000) + "</script>" +
             "<script type=\"application/ld+json\">" + "{\"a\":".repeat(3000) + "{}" + "}".repeat(3000) + "</script></head></html>"
         val p = Inspector.parseStaticHtml(html, "https://x.test/")
-        Inspector.finalize(Hit("https://x.test/"), p, Inspector.candidatesFromProbe(p))
+        Inspector.finalize(Hit("https://x.test/"), p, Inspector.candidatesFromProbe(p), prober = null)
         Inspector.parseProbeJson("{\"ld\":[\"" + "[".repeat(50_000) + "\"]}")
         Inspector.parseProbeJson("[".repeat(100_000))
     }
@@ -173,7 +173,7 @@ class StressTest {
         repeat(3000) { i ->
             val page = junk(200 + rnd.nextInt(6000))
             val p = Inspector.parseStaticHtml(page, "https://fuzz.test/p")
-            val v = Inspector.finalize(Hit("https://fuzz.test/p"), p, Inspector.candidatesFromProbe(p))
+            val v = Inspector.finalize(Hit("https://fuzz.test/p"), p, Inspector.candidatesFromProbe(p), prober = null)
             v.forEach { it.score = Ranker.score(junk(30), it) }
             Ranker.order(v)
             Inspector.parseProbeJson(page)

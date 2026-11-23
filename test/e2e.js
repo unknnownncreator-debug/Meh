@@ -38,7 +38,8 @@ function readSse(url) {
 (async () => {
   const fixtures = await startFixtures();
   const F = `http://127.0.0.1:${fixtures.address().port}`;
-  const pages = ['static-video', 'jsonld', 'js-player', 'embed', 'ad-only', 'no-video', 'youtube-only', 'tiktok-only', 'mixed'].map((p) => `${F}/${p}.html`);
+  const pages = ['static-video', 'jsonld', 'js-player', 'embed', 'ad-only', 'no-video', 'youtube-only', 'tiktok-only', 'mixed',
+    'preroll-player', 'preroll-only', 'ima-container', 'declared-long', 'moov-at-end'].map((p) => `${F}/${p}.html`);
   process.env.MEH_ALLOW_PRIVATE = '1';
   process.env.MEH_TEST_PAGES = pages.join(',');
 
@@ -218,6 +219,13 @@ function readSse(url) {
     assert.equal(byPage['js-player.html'].kind, 'hls', 'HLS found by network sniffing');
     assert.equal(byPage['js-player.html'].via, 'network');
     assert.equal(byPage['embed.html'].provider, 'vimeo', 'embedded Vimeo iframe');
+    // Pre-roll ads must never stand in for the real video.
+    assert.match(byPage['preroll-player.html'].src, /\/f1\.mp4$/, 'player loads ad then video → the video');
+    assert.ok(!byPage['preroll-only.html'], 'page whose only video is a 25 s ad yields nothing');
+    assert.match(byPage['ima-container.html'].src, /\/f3\.mp4$/, 'video in an ad container is skipped for the real one');
+    assert.match(byPage['declared-long.html'].src, /\/f4\.mp4$/, 'page declares 5 min → its 60 s clip is rejected');
+    assert.match(byPage['moov-at-end.html'].src, /\/n5\.mp4$/, 'unknown length is not rejected');
+    assert.ok(!items.some((i) => /\/(s\d|m4)\.mp4$/.test(i.src)), 'no ad clip anywhere');
     assert.ok(!byPage['youtube-only.html'], 'YouTube-only page yields nothing');
     assert.ok(!byPage['tiktok-only.html'], 'TikTok-only page yields nothing');
     assert.match(byPage['mixed.html'].src, /report\.webm$/, 'article plays its own video, not the YouTube embed');
@@ -280,6 +288,15 @@ function readSse(url) {
     // P goes back.
     await page.keyboard.press('p');
     await page.waitForFunction((t) => document.querySelector('#nowTitle').textContent === t, second, { timeout: 10000 });
+
+    // Play-time ad check: a found video that turns out to be 25 s long is skipped, not played.
+    process.env.MEH_TEST_PAGES = `${F}/short-unknown.html`;
+    await page.fill('#q', 'volcano teaser');
+    await page.press('#q', 'Enter');
+    await page.waitForFunction(() => /everything found|watched everything/i.test(document.querySelector('#overlayText').textContent), null, { timeout: 30000 });
+    const played = await page.evaluate(() => document.querySelector('#video').currentTime);
+    assert.ok(played < 1, `ad-length video played for ${played}s`);
+    process.env.MEH_TEST_PAGES = pages.join(',');
 
     // Phone width: no horizontal scroll.
     await page.setViewportSize({ width: 390, height: 844 });

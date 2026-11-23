@@ -31,7 +31,7 @@ import kotlin.coroutines.resume
  */
 class WebInspector(private val context: Context, private val host: ViewGroup, size: Int = 3) {
 
-    private class Sniffed(val url: String, val kind: String?, val referer: String)
+    private class Sniffed(val url: String, val kind: String?, val referer: String, val seq: Int = 0)
 
     private class Session {
         val sniffed = ConcurrentHashMap<String, Sniffed>()
@@ -55,7 +55,9 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
 
         override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
             val url = request.url.toString()
-            if (isAdUrl(url)) return EMPTY()
+            // Never block the page being inspected itself, only what it loads (its URL may
+            // legitimately contain words like "preroll" or "ads").
+            if (!request.isForMainFrame && isAdUrl(url)) return EMPTY()
             val s = session ?: return null
             val headers = request.requestHeaders.mapKeys { it.key.lowercase() }
             val kind = mediaKindFromUrl(url)
@@ -65,7 +67,7 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
             if (!looksLikeMedia) return null
             if (!isSegment(url) && (kind == null || kind == "file" || kind == "hls")) {
                 val key = url.substringBefore('?').substringBefore('#')
-                s.sniffed.putIfAbsent(key, Sniffed(url, kind, headers["referer"] ?: view.url ?: url))
+                synchronized(s) { if (!s.sniffed.containsKey(key)) s.sniffed[key] = Sniffed(url, kind, headers["referer"] ?: view.url ?: url, s.sniffed.size + 1) }
             }
             return EMPTY() // recorded; don't actually download/play it here
         }
@@ -131,11 +133,16 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
                 wv.loadUrl(hit.url)
                 delay(2200)
                 eval(wv, PRESS_JS)
+                // Keep watching after the first video request: that is usually a pre-roll ad,
+                // and the real video is only requested once the (blocked) ad fails. Stop early
+                // only once a second video has shown up.
                 val start = System.currentTimeMillis()
+                var pressedAgain = false
                 while (System.currentTimeMillis() - start < SNIFF_WINDOW) {
                     delay(400)
-                    if (session.sniffed.isNotEmpty() && System.currentTimeMillis() - start > 1600) break
-                    if (System.currentTimeMillis() - start in 1600..2000) eval(wv, PRESS_JS)
+                    val elapsed = System.currentTimeMillis() - start
+                    if (session.sniffed.size >= 2 && elapsed > 3000) break
+                    if (!pressedAgain && elapsed > 2500) { pressedAgain = true; eval(wv, PRESS_JS) }
                 }
                 val live = eval(wv, PROBE_JS)?.let { raw ->
                     (try { JSONTokener(raw).nextValue() as? String } catch (e: Exception) { null })?.let(Inspector::parseProbeJson)
@@ -160,9 +167,14 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
         val cands = probes.flatMap(Inspector::candidatesFromProbe).toMutableList()
         for (s in resolved) {
             if (s.kind != "file" && s.kind != "hls") continue
-            cands += Candidate(s.kind, s.url, "network", s.referer, duration = durations[s.url.substringBefore('?')])
+            cands += Candidate(s.kind, s.url, "network", s.referer, duration = durations[s.url.substringBefore('?')], seq = s.seq)
         }
-        return Inspector.finalize(hit, probes.first(), cands)
+        // Videos the live page shows inside an ad container are ads wherever they appear.
+        val adSrcs = probes.flatMap { p -> p.videos.filter { it.ad }.flatMap { listOfNotNull(it.src) + it.sources.map { s -> s.first } } }
+            .map { it.substringBefore('?') }.toSet()
+        val marked = cands.map { if (it.src.substringBefore('?') in adSrcs) it.copy(ad = true) else it }
+        // Choosing may read the start of each file to learn its length: network work, off the main thread.
+        return withContext(Dispatchers.IO) { Inspector.finalize(hit, probes.first(), marked) }
     }
 
     /** Load a page in a real browser and return its HTML (for search pages that block plain requests). */
@@ -198,7 +210,7 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
     } catch (e: Exception) { null }
 
     companion object {
-        private const val SNIFF_WINDOW = 4500L
+        private const val SNIFF_WINDOW = 6500L
 
         private fun EMPTY() = WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
 
@@ -238,12 +250,17 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
     if (k && v && !(k in out.metas)) out.metas[k] = v;
   });
   document.querySelectorAll('script[type="application/ld+json"]').forEach(function(s){ out.ld.push(s.textContent); });
+  // Ad players (IMA, VAST/VPAID plugins, ad slots) put their video inside containers like these.
+  var AD_BOX = '[class*="ad-container" i],[id*="ad-container" i],[class*="ima-" i],[id*="ima-" i],[class*="preroll" i],' +
+    '[id*="preroll" i],[class*="advert" i],[id*="advert" i],[class*="ad-player" i],[class*="adplayer" i],[class*="ad-slot" i],' +
+    '[class*="adslot" i],[class*="vast" i],[class*="vpaid" i],[data-ad],[data-ad-slot],[id^="google_ads" i],[class*="sponsor" i]';
   document.querySelectorAll('video').forEach(function(v){
     var r = v.getBoundingClientRect();
+    var ad = false; try { ad = !!v.closest(AD_BOX); } catch (e) {}
     var src = v.currentSrc || v.src || '';
     out.videos.push({ src: /^blob:/.test(src) ? '' : src,
       sources: Array.prototype.map.call(v.querySelectorAll('source'), function(s){ return { src: s.src, type: s.type || '' }; }),
-      poster: v.poster || '', duration: isFinite(v.duration) ? v.duration : 0, w: r.width, h: r.height });
+      poster: v.poster || '', duration: isFinite(v.duration) ? v.duration : 0, w: r.width, h: r.height, ad: ad });
   });
   document.querySelectorAll('iframe').forEach(function(f){ if (f.src) out.iframes.push(f.src); });
   out.text = (document.body ? document.body.innerText : '').slice(0, 3000);

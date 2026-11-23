@@ -26,6 +26,7 @@ import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.annotation.OptIn
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -123,6 +124,13 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
             }
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) advanceAfterEnd()
+                // Last line of defence against pre-roll ads: a video found inside a page (not
+                // declared by the site) that turns out to be under 45 s is skipped, not played.
+                if (state == Player.STATE_READY) {
+                    val v = current?.let { items[it] }
+                    val ms = exo.duration
+                    if (v != null && v.via in setOf("network", "live", "dom") && ms != C.TIME_UNSET && ms in 1 until 45_000) failCurrent("looks like an ad")
+                }
             }
             override fun onPlayerError(error: PlaybackException) = failCurrent(error.errorCodeName)
         })

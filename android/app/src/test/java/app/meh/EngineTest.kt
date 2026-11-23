@@ -53,7 +53,7 @@ class EngineTest {
 
     private fun inspect(html: String, url: String = "https://site.com/page"): List<Video> {
         val p = Inspector.parseStaticHtml(html, url)
-        return Inspector.finalize(Hit(url), p, Inspector.candidatesFromProbe(p))
+        return Inspector.finalize(Hit(url), p, Inspector.candidatesFromProbe(p), prober = null)
     }
 
     @Test fun findsPlainVideoTag() {
@@ -116,13 +116,13 @@ class EngineTest {
     @Test fun parsesLiveDomProbe() {
         val json = """{"url":"https://s.com/p","title":"Cam","metas":{"og:title":"Live cam"},"ld":[],"videos":[{"src":"https://s.com/v.webm","sources":[],"poster":"","duration":120,"w":640,"h":360}],"iframes":[],"text":"hello"}"""
         val p = Inspector.parseProbeJson(json)!!
-        val v = Inspector.finalize(Hit("https://s.com/p"), p, Inspector.candidatesFromProbe(p))
+        val v = Inspector.finalize(Hit("https://s.com/p"), p, Inspector.candidatesFromProbe(p), prober = null)
         assertEquals("https://s.com/v.webm", v[0].src)
         assertEquals("Live cam", v[0].title)
         assertEquals(120.0, v[0].duration!!, 0.0)
         // tiny on-page player = ad/teaser
         val small = Inspector.parseProbeJson(json.replace("\"w\":640", "\"w\":120"))!!
-        assertTrue(Inspector.finalize(Hit("https://s.com/p"), small, Inspector.candidatesFromProbe(small)).isEmpty())
+        assertTrue(Inspector.finalize(Hit("https://s.com/p"), small, Inspector.candidatesFromProbe(small), prober = null).isEmpty())
     }
 
     @Test fun ranksRelevantVideosHigherAndSpreadsSites() {

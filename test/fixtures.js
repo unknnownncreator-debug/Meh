@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const MEDIA = path.join(__dirname, 'fixtures', 'media');
+const MEDIA = path.join(__dirname, 'fixtures', 'media2');
 
 function ensureMedia() {
   fs.mkdirSync(path.join(MEDIA, 'stream'), { recursive: true });
@@ -20,13 +20,28 @@ function ensureMedia() {
         '-c:a', 'libopus', '-shortest', out]);
     }
   };
-  mk('eruption.webm', 'red', 30);
-  mk('formation.webm', 'blue', 30);
+  // Real content is at least a minute long (shorter "found" videos are treated as ads).
+  mk('eruption.webm', 'red', 60);
+  mk('formation.webm', 'blue', 60);
   mk('preroll.webm', 'yellow', 30);
   if (!fs.existsSync(path.join(MEDIA, 'stream', 'index.m3u8'))) {
-    ff(['-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=24:duration=24', '-c:v', 'libx264', '-preset', 'ultrafast',
-      '-f', 'hls', '-hls_time', '4', '-hls_playlist_type', 'vod', path.join(MEDIA, 'stream', 'index.m3u8')]);
+    ff(['-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=24:duration=60', '-c:v', 'libx264', '-preset', 'ultrafast',
+      '-f', 'hls', '-hls_time', '6', '-hls_playlist_type', 'vod', path.join(MEDIA, 'stream', 'index.m3u8')]);
   }
+  // MP4 clips (VP9, so headless Chromium can play them) for the pre-roll ad tests.
+  // "faststart" puts the length header at the front, where the app reads it.
+  const mp4 = (name, secs, faststart) => {
+    const out = path.join(MEDIA, name);
+    if (!fs.existsSync(out)) {
+      ff(['-f', 'lavfi', '-i', `testsrc2=size=160x90:rate=10:duration=${secs}`, '-c:v', 'libvpx-vp9', '-b:v', '60k',
+        '-deadline', 'realtime', '-cpu-used', '8', ...(faststart ? ['-movflags', '+faststart'] : []), out]);
+    }
+  };
+  mp4('short.mp4', 25, true);         // a typical pre-roll ad
+  mp4('mid.mp4', 60, true);
+  mp4('long.mp4', 200, true);         // the real video
+  mp4('long-nofast.mp4', 200, false); // length header at the end: can't be read up front
+  mp4('short-nofast.mp4', 25, false);
 }
 
 const PAGES = {
@@ -70,6 +85,43 @@ const PAGES = {
   '/ad-only.html': `<!doctype html><html><head><title>Volcano news</title></head>
     <body><video autoplay muted src="/ads/preroll.webm"></video><p>No real video here.</p></body></html>`,
 
+  // ---- pre-roll ads (clip names are neutral: these ads are NOT on any ad-server list) ----
+  // A player that requests its ad first, and the real video once the ad fails/ends.
+  '/preroll-player.html': `<!doctype html><html><head><title>Volcano documentary</title></head><body>
+    <div class="player"><video id="v" width="640" height="360" muted autoplay></video></div><script>
+      var v = document.getElementById('v'), switched = false;
+      function content() { if (!switched) { switched = true; v.src = '/media/clips/f1.mp4'; v.play().catch(function(){}); } }
+      v.onerror = content; setTimeout(content, 1500);
+      v.src = '/media/clips/s1.mp4'; v.play().catch(function(){});
+    </script></body></html>`,
+
+  // A page whose only video request is the ad: must yield nothing.
+  '/preroll-only.html': `<!doctype html><html><head><title>Volcano clip with ad</title></head><body>
+    <video width="640" height="360" muted autoplay src="/media/clips/s2.mp4"></video></body></html>`,
+
+  // IMA-style: the ad plays in an ad container, the real video is set up by script.
+  '/ima-container.html': `<!doctype html><html><head><title>Volcano news report</title></head><body>
+    <div class="ima-ad-container"><video width="640" height="360" src="/media/clips/s3.mp4"></video></div>
+    <div class="player"><video id="c" width="640" height="360"></video></div>
+    <script>setTimeout(function(){ document.getElementById('c').src = '/media/clips/f3.mp4'; }, 800);</script></body></html>`,
+
+  // The page says its video is 5 minutes; a 60 s clip it loads first can't be it.
+  '/declared-long.html': `<!doctype html><html><head><title>Volcano full lecture</title>
+    <script type="application/ld+json">{"@type":"VideoObject","name":"Volcano full lecture","duration":"PT5M"}</script></head><body>
+    <video id="v" width="640" height="360" muted></video><script>
+      var v = document.getElementById('v'), n = 0;
+      function next(){ v.src = ['/media/clips/m4.mp4', '/media/clips/f4.mp4'][Math.min(n++, 1)]; v.play().catch(function(){}); }
+      v.onerror = next; next();
+    </script></body></html>`,
+
+  // Length header at the end of the file: length unknown up front, so it must NOT be rejected.
+  '/moov-at-end.html': `<!doctype html><html><head><title>Volcano timelapse</title></head><body>
+    <video width="640" height="360" src="/media/clips/n5.mp4"></video></body></html>`,
+
+  // A 25 s clip whose length can only be learned by loading it: the player must skip it.
+  '/short-unknown.html': `<!doctype html><html><head><title>Volcano teaser</title></head><body>
+    <video width="640" height="360" src="/media/clips/q6.mp4"></video></body></html>`,
+
   '/no-video.html': `<!doctype html><html><head><title>Volcano text article</title></head><body><p>Just text about a volcano.</p></body></html>`,
 };
 
@@ -79,10 +131,14 @@ function startFixtures(port = 0) {
     const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
     if (PAGES[p]) { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(PAGES[p]); return; }
     let file = null;
-    if (p.startsWith('/media/')) file = path.join(MEDIA, p.slice(7));
+    if (p.startsWith('/media/clips/')) {
+      // Many URLs, few files: s* = 25 s ad, m* = 60 s, f*/l* = 200 s, n* = 200 s (header at end), q* = 25 s (header at end)
+      const pick = { s: 'short.mp4', m: 'mid.mp4', f: 'long.mp4', l: 'long.mp4', n: 'long-nofast.mp4', q: 'short-nofast.mp4' }[path.basename(p)[0]];
+      if (pick) file = path.join(MEDIA, pick);
+    } else if (p.startsWith('/media/')) file = path.join(MEDIA, p.slice(7));
     if (p === '/ads/preroll.webm') file = path.join(MEDIA, 'preroll.webm');
     if (!file || !file.startsWith(MEDIA) || !fs.existsSync(file)) { res.writeHead(404).end(); return; }
-    const type = file.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : file.endsWith('.ts') ? 'video/mp2t' : 'video/webm';
+    const type = file.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : file.endsWith('.ts') ? 'video/mp2t' : file.endsWith('.mp4') ? 'video/mp4' : 'video/webm';
     const size = fs.statSync(file).size;
     const range = req.headers.range && req.headers.range.match(/bytes=(\d+)-(\d*)/);
     if (range) {

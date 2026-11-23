@@ -196,7 +196,7 @@ function junk(len) { let s = ''; while (s.length < len) s += PIECES[rand(PIECES.
     assert.ok(by['/huge-with-video'], 'video declared at the top of a 25 MB page');
     assert.ok(by['/popups'], 'page spamming alerts/popups still inspected');
     assert.equal(by['/js-loop-after-media'] && by['/js-loop-after-media'].kind, 'hls', 'media sniffed before the page locked up');
-    assert.ok(by['/big-media-js'] && ['dom', 'network'].includes(by['/big-media-js'].via), 'script-created player found by the live browser');
+    assert.ok(by['/big-media-js'] && ['dom', 'live', 'network'].includes(by['/big-media-js'].via), 'script-created player found by the live browser');
     assert.match(by['/many-videos'].src, /clip-150\.webm/, 'picks the big real player out of 300 tiny ones');
     for (const bad of ['/hang', '/drip', '/endless', '/redirect-loop', '/error500', '/binary', '/js-loop', '/navigates-away', '/broken-json']) {
       assert.ok(!by[bad], `${bad} should yield nothing`);

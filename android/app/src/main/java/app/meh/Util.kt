@@ -16,6 +16,11 @@ private val AD_PATTERNS = listOf(
     "rubiconproject", "criteo", "adform", "smartadserver", "connatix", "primis\\.tech",
     "aniview", "vidazoo", "exco\\.com", "jwpltx\\.com", "/ads?/", "[?&/._-]vast[?&/._-]",
     "preroll", "pre-roll", "/adserver", "adsystem",
+    // more ad servers / ad-video CDNs / ad formats
+    "googleads\\.", "adsafeprotected", "doubleverify", "tremorhub", "unrulymedia", "sascdn\\.com", "advertising\\.com",
+    "adcolony", "vpaid", "/adtags?/", "ad-?delivery", "adserv", "yieldmo", "lijit\\.com", "openx\\.net", "indexww\\.com",
+    "3lift\\.com", "sharethrough", "gumgum", "/creatives?/", "/vast/", "admanager", "smartclip", "stickyadstv",
+    "adition\\.com", "videoadex", "ads-?video", "video-?ads?\\b", "[?&]ad_?type=",
 ).map { Regex(it, IC) }
 
 fun isAdUrl(url: String) = AD_PATTERNS.any { it.containsMatchIn(url) }

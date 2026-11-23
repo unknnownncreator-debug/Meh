@@ -209,6 +209,11 @@ function play(it) {
 function playFile(it, { started, ended, fail, my }) {
   const v = els.video;
   v.muted = store.get('muted', false);
+  // Last line of defence against pre-roll ads: a video found inside a page (not declared
+  // by the site) that turns out to be under 45 s long is skipped instead of played.
+  v.onloadedmetadata = () => {
+    if (my === token && ['network', 'live', 'dom'].includes(it.via) && Number.isFinite(v.duration) && v.duration > 0 && v.duration < 45) fail('looks like an ad');
+  };
   v.onplaying = started;
   v.onended = ended;
   v.onerror = () => fail('media error');
