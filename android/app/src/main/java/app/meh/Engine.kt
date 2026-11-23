@@ -36,7 +36,8 @@ class Engine(private val scope: CoroutineScope, private val web: WebInspector) {
         cancel()
         job = scope.launch {
             var found = 0
-            val emit: suspend (Video, Hit) -> Unit = { v, hit ->
+            val emit: suspend (Video, Hit) -> Unit = emit@{ v, hit ->
+                if (v.blocked) return@emit // YouTube is excluded entirely
                 v.score = Ranker.score(query, v, hit.rank)
                 found++
                 withContext(Dispatchers.Main) { listener.onVideo(v) }
@@ -51,7 +52,7 @@ class Engine(private val scope: CoroutineScope, private val web: WebInspector) {
                 listener.onDone(0, false)
                 return@launch
             }
-            // Search pages that already tell us how to play a result (YouTube) go out first.
+            // Search pages that already tell us how to play a result go out first.
             for (h in queue) h.media?.let { emit(it, h) }
             val toInspect = queue.filter { it.media == null }
             var done = 0

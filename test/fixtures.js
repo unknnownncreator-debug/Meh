@@ -49,7 +49,17 @@ const PAGES = {
     </script></body></html>`,
 
   '/embed.html': `<!doctype html><html><head><title>Top 10 volcano facts</title></head>
-    <body><p>Volcano facts</p><iframe width="560" height="315" src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe></body></html>`,
+    <body><p>Volcano facts</p><iframe width="560" height="315" src="https://player.vimeo.com/video/76979871"></iframe></body></html>`,
+
+  // YouTube is excluded: a page whose only video is YouTube yields nothing…
+  '/youtube-only.html': `<!doctype html><html><head><title>Volcano on YouTube</title>
+    <meta property="og:video:url" content="https://www.youtube.com/embed/dQw4w9WgXcQ"></head>
+    <body><iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe></body></html>`,
+
+  // …and an article with both a YouTube embed and its own video plays its own video.
+  '/mixed.html': `<!doctype html><html><head><title>Volcano report</title></head><body>
+    <iframe src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"></iframe>
+    <video controls width="640" height="360" src="/media/report.webm"></video></body></html>`,
 
   '/ad-only.html': `<!doctype html><html><head><title>Volcano news</title></head>
     <body><video autoplay muted src="/ads/preroll.webm"></video><p>No real video here.</p></body></html>`,

@@ -1,7 +1,6 @@
 {
   "bing": 10,
   "bingVideos": 10,
-  "youtube": 19,
-  "youtubeFirst": "HggWKlZv9yk",
-  "bingFirst": "https://en.wikipedia.org/wiki/Volcano"
+  "bingFirst": "https://en.wikipedia.org/wiki/Volcano",
+  "bingVideosFirst": "https://www.youtube.com/watch?v=MSJ9SxIlzkg"
 }

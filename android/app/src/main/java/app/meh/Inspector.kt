@@ -257,6 +257,7 @@ object Inspector {
 
         val byKey = LinkedHashMap<String, Pair<Candidate, Int>>()
         for (c in cands) {
+            if (c.provider == "youtube" || isYouTube(c.src)) continue // e.g. a YouTube player embedded in an article
             val key = if (c.kind == "embed") "${c.provider}:${c.id}" else c.src.substringBefore('?').substringBefore('#')
             val s = scoreCandidate(c)
             if (s < 0) continue
@@ -274,7 +275,7 @@ object Inspector {
                 kind = c.kind, src = c.src, provider = c.provider, id = c.id,
                 referer = c.referer.ifEmpty { hit.url },
                 title = c.title.ifEmpty { pageTitle }, description = c.description.ifEmpty { pageDesc },
-                thumbnail = c.thumbnail ?: pageThumb ?: (if (c.provider == "youtube") "https://i.ytimg.com/vi/${c.id}/hqdefault.jpg" else null),
+                thumbnail = c.thumbnail ?: pageThumb,
                 duration = c.duration ?: hit.duration, siteName = siteName,
                 pageUrl = hit.url, pageTitle = pageTitle, pageText = main.text, via = c.origin,
             )

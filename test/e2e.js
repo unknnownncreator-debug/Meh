@@ -38,7 +38,7 @@ function readSse(url) {
 (async () => {
   const fixtures = await startFixtures();
   const F = `http://127.0.0.1:${fixtures.address().port}`;
-  const pages = ['static-video', 'jsonld', 'js-player', 'embed', 'ad-only', 'no-video'].map((p) => `${F}/${p}.html`);
+  const pages = ['static-video', 'jsonld', 'js-player', 'embed', 'ad-only', 'no-video', 'youtube-only', 'mixed'].map((p) => `${F}/${p}.html`);
   process.env.MEH_ALLOW_PRIVATE = '1';
   process.env.MEH_TEST_PAGES = pages.join(',');
 
@@ -76,14 +76,13 @@ function readSse(url) {
     assert.equal(cleanHitUrl('https://www.bing.com/images/search?q=x'), null);
   });
 
-  await step('parses search result pages (DuckDuckGo, Bing, Bing Videos, YouTube)', async () => {
+  await step('parses search result pages (DuckDuckGo, Bing, Bing Videos)', async () => {
     const realFetch = global.fetch;
     const pad = '<!--' + 'x'.repeat(2500) + '-->';
     const html = {
       'html.duckduckgo.com': `${pad}<div class="result results_links"><h2><a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fa.com%2Fvolcano">Volcano <b>video</b></a></h2><a class="result__snippet" href="#">Lava!</a></div>`,
       'www.bing.com/search': `${pad}<li class="b_algo"><h2><a href="https://b.org/eruption" h="ID=1">Eruption</a></h2><p>Big one</p></li>`,
       'www.bing.com/videos': `${pad}<div class="vrhdata" vrhm='{&quot;du&quot;:&quot;4:13&quot;,&quot;murl&quot;:&quot;https://c.net/clip/9&quot;,&quot;vt&quot;:&quot;Volcano clip&quot;}'></div>`,
-      'www.youtube.com': `${pad}var ytInitialData = {"videoRenderer":{"videoId":"abcdefghijk","thumbnail":{},"title":{"runs":[{"text":"Volcano \\u0026 lava"}]},"lengthText":{"accessibility":{},"simpleText":"12:05"}}};`,
     };
     global.fetch = async (url) => {
       const key = Object.keys(html).find((k) => String(url).includes(k));
@@ -96,20 +95,17 @@ function readSse(url) {
       assert.equal(bing[0].url, 'https://b.org/eruption');
       const bv = await ENGINES.bingVideos('volcano', 0);
       assert.deepEqual([bv[0].url, bv[0].title, bv[0].duration], ['https://c.net/clip/9', 'Volcano clip', 253]);
-      const yt = await ENGINES.youtube('volcano', 0);
-      assert.equal(yt[0].media.id, 'abcdefghijk');
-      assert.equal(yt[0].title, 'Volcano & lava');
-      assert.equal(yt[0].duration, 725);
+      assert.equal(ENGINES.youtube, undefined, 'YouTube search engine removed');
     } finally {
       global.fetch = realFetch;
     }
   });
 
-  await step('parses REAL saved search pages (Bing, Bing Videos, YouTube, DuckDuckGo bot check)', async () => {
+  await step('parses REAL saved search pages (Bing, Bing Videos, DuckDuckGo bot check)', async () => {
     const zlib = require('zlib');
     const real = (n) => zlib.gunzipSync(fs.readFileSync(path.join(__dirname, 'fixtures', 'real', n + '.html.gz'))).toString('utf8');
     const realFetch = global.fetch;
-    const map = { 'html.duckduckgo.com': ['ddg', 202], 'www.bing.com/search': ['bing', 200], 'www.bing.com/videos': ['bingv', 200], 'www.youtube.com': ['yt', 200] };
+    const map = { 'html.duckduckgo.com': ['ddg', 202], 'www.bing.com/search': ['bing', 200], 'www.bing.com/videos': ['bingv', 200] };
     global.fetch = async (url) => {
       const [name, status] = map[Object.keys(map).find((k) => String(url).includes(k))];
       return new Response(real(name), { status, headers: { 'content-type': 'text/html' } });
@@ -119,15 +115,12 @@ function readSse(url) {
       assert.ok(bing.length >= 8 && bing.every((h) => /^https:\/\//.test(h.url) && h.title), `bing ${bing.length}`);
       const bv = await ENGINES.bingVideos('volcano eruption', 0);
       assert.ok(bv.length >= 8, `bing videos ${bv.length}`);
-      const yt = await ENGINES.youtube('volcano', 0);
-      assert.ok(yt.length >= 15 && yt.every((h) => /^[\w-]{11}$/.test(h.media.id) && h.title), `youtube ${yt.length}`);
-      assert.ok(yt.filter((h) => h.duration).length >= 10, 'youtube durations');
       // DuckDuckGo's bot check (202) must fall back to the real browser, not silently give 0.
       let browserCalls = 0;
       const ddg = await ENGINES.duckduckgo('volcano', 0, async () => { browserCalls++; return ''; });
       assert.equal(ddg.length, 0);
       assert.equal(browserCalls, 1, 'fell back to the browser');
-      const parity = { bing: bing.length, bingVideos: bv.length, youtube: yt.length, youtubeFirst: yt[0].media.id, bingFirst: bing[0].url };
+      const parity = { bing: bing.length, bingVideos: bv.length, bingFirst: bing[0].url, bingVideosFirst: bv[0].url };
       fs.writeFileSync(path.join(__dirname, 'fixtures', 'real', 'expected.json'), JSON.stringify(parity, null, 2));
     } finally {
       global.fetch = realFetch;
@@ -173,6 +166,23 @@ function readSse(url) {
     }
   });
 
+  await step('YouTube results are dropped from every engine', async () => {
+    const { searchWeb } = require('../lib/search');
+    const realFetch = global.fetch;
+    const page = '<!--' + 'x'.repeat(2500) + '-->' +
+      '<li class="b_algo"><h2><a href="https://www.youtube.com/watch?v=abcdefghijk">YT</a></h2></li>' +
+      '<li class="b_algo"><h2><a href="https://youtu.be/abcdefghijk">YT short</a></h2></li>' +
+      '<li class="b_algo"><h2><a href="https://m.youtube.com/watch?v=zzzzzzzzzzz">YT mobile</a></h2></li>' +
+      '<li class="b_algo"><h2><a href="https://news.example.org/volcano-video">News</a></h2></li>';
+    global.fetch = async () => new Response(page, { status: 200, headers: { 'content-type': 'text/html' } });
+    try {
+      const hits = await searchWeb('volcano', { engines: ['bing'] });
+      assert.deepEqual(hits.map((h) => h.url), ['https://news.example.org/volcano-video']);
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+
   await step('rewrites HLS playlists through the proxy', () => {
     const out = rewritePlaylist('#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"\nseg0.ts\nhttps://cdn.x/seg1.ts', 'https://h.com/v/index.m3u8', 'https://h.com/page');
     assert.match(out, /URI="\/proxy\?u=https%3A%2F%2Fh\.com%2Fv%2Fkey\.bin&r=/);
@@ -205,7 +215,10 @@ function readSse(url) {
     assert.equal(byPage['jsonld.html'].duration, 30);
     assert.equal(byPage['js-player.html'].kind, 'hls', 'HLS found by network sniffing');
     assert.equal(byPage['js-player.html'].via, 'network');
-    assert.equal(byPage['embed.html'].provider, 'youtube', 'embedded YouTube iframe');
+    assert.equal(byPage['embed.html'].provider, 'vimeo', 'embedded Vimeo iframe');
+    assert.ok(!byPage['youtube-only.html'], 'YouTube-only page yields nothing');
+    assert.match(byPage['mixed.html'].src, /report\.webm$/, 'article plays its own video, not the YouTube embed');
+    assert.ok(items.every((i) => i.provider !== 'youtube' && !/youtube|youtu\.be|googlevideo/.test(i.src + i.pageUrl)), 'no YouTube anywhere');
     assert.ok(!byPage['ad-only.html'], 'ad-only page yields nothing');
     assert.ok(!byPage['no-video.html'], 'text page yields nothing');
     const top = [...items].sort((a, b) => b.score - a.score)[0];

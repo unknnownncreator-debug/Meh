@@ -77,12 +77,9 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
     init {
         CookieManager.getInstance().apply {
             setAcceptCookie(true)
-            // Pre-accept Google/YouTube cookie consent so EU users don't land on a consent wall.
-            for (site in listOf("https://www.google.com", "https://www.youtube.com")) {
-                val domain = if ("google" in site) ".google.com" else ".youtube.com"
-                setCookie(site, "SOCS=CAI; Domain=$domain; Path=/")
-                setCookie(site, "CONSENT=YES+1; Domain=$domain; Path=/")
-            }
+            // Pre-accept Google's cookie consent so EU users don't land on a consent wall.
+            setCookie("https://www.google.com", "SOCS=CAI; Domain=.google.com; Path=/")
+            setCookie("https://www.google.com", "CONSENT=YES+1; Domain=.google.com; Path=/")
         }
         repeat(size) { pool.trySend(create()) }
     }

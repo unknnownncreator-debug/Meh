@@ -9,6 +9,7 @@ const { searchWeb } = require('./lib/search');
 const { inspectPage, browserFetch, shutdown } = require('./lib/inspector');
 const { scoreItem } = require('./lib/ranker');
 const { handleProxy, proxyUrl } = require('./lib/proxy');
+const { isBlockedVideo } = require('./lib/util');
 
 const PORT = +process.env.PORT || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -62,6 +63,7 @@ async function handleSearch(req, res, query) {
   const seenMedia = new Set();
 
   const emit = (item, hit) => {
+    if (isBlockedVideo(item)) return; // YouTube is excluded entirely
     const key = item.kind === 'embed' ? `${item.provider}:${item.id}` : item.src.replace(/[?#].*$/, '');
     if (seenMedia.has(key)) return;
     seenMedia.add(key);
@@ -88,7 +90,7 @@ async function handleSearch(req, res, query) {
     stats.pagesTotal = queue.length;
     status(queue.length ? `Inspecting ${queue.length} pages for video…` : 'No search results. The search engines may be blocking requests — try again in a moment.');
 
-    // Hits that already carry playable media (e.g. YouTube results) go out immediately.
+    // Hits that already carry playable media go out immediately.
     const toInspect = [];
     for (const hit of queue) {
       if (hit.media) { emit({ ...hit.media, pageUrl: hit.url, pageTitle: hit.title, pageText: hit.snippet || '' }, hit); stats.pagesDone++; }

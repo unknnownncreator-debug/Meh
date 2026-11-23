@@ -34,6 +34,9 @@ data class Video(
     val via: String = "",
     var score: Double = 0.0,
 ) {
+    /** A found video we refuse to play (currently: anything YouTube). */
+    val blocked: Boolean get() = provider == "youtube" || isYouTube(src) || isYouTube(pageUrl)
+
     val key: String get() = if (kind == "embed") "$provider:$id" else src.substringBefore('?').substringBefore('#')
     val site: String get() = domainOf(pageUrl.ifEmpty { src })
     val kindLabel: String get() = when (kind) {

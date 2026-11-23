@@ -92,18 +92,14 @@ class StressTest {
 
     @Test fun realSearchPagesMatchDesktopParser() {
         val expected = org.json.JSONObject(File(REAL, "expected.json").readText())
-        val pages = mapOf("www.bing.com/search" to "bing", "www.bing.com/videos" to "bingv", "www.youtube.com" to "yt")
+        val pages = mapOf("www.bing.com/search" to "bing", "www.bing.com/videos" to "bingv")
         val s = Search({ url -> pages.entries.firstOrNull { url.contains(it.key) }?.let { real(it.value) } ?: "" })
         val bing = s.bing("volcano", 0)
         val bv = s.bingVideos("volcano eruption", 0)
-        val yt = s.youtube("volcano", 0)
         assertEquals("bing", expected.getInt("bing"), bing.size)
         assertEquals("bing videos", expected.getInt("bingVideos"), bv.size)
-        assertEquals("youtube", expected.getInt("youtube"), yt.size)
-        assertEquals(expected.getString("youtubeFirst"), yt[0].media!!.id)
         assertEquals(expected.getString("bingFirst"), bing[0].url)
-        assertTrue(yt.all { it.title.isNotEmpty() && it.media!!.thumbnail!!.startsWith("https://i.ytimg.com/") })
-        assertTrue(yt.count { it.duration != null } >= 10)
+        assertEquals(expected.getString("bingVideosFirst"), bv[0].url)
     }
 
     @Test fun googleResultsBotCheckAndBrowserRetry() {
@@ -184,7 +180,7 @@ class StressTest {
             Search.cleanHitUrl(junk(80)); embedFromUrl(junk(60)); parseDuration(junk(10)); absolute(junk(40), "https://x.test/")
             if (i % 20 == 0) {
                 val s = Search({ page })
-                s.duckduckgo("v", 0); s.bing("v", 0); s.bingVideos("v", 0); s.youtube("v", 0); s.google("v", 0)
+                s.duckduckgo("v", 0); s.bing("v", 0); s.bingVideos("v", 0); s.google("v", 0)
             }
         }
     }

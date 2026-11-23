@@ -40,17 +40,15 @@ class EngineTest {
             "html.duckduckgo.com" to """$pad<div class="result results_links"><h2><a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fa.com%2Fvolcano">Volcano <b>video</b></a></h2><a class="result__snippet" href="#">Lava!</a></div>""",
             "www.bing.com/search" to """$pad<li class="b_algo"><h2><a href="https://b.org/eruption" h="ID=1">Eruption</a></h2><p>Big one</p></li>""",
             "www.bing.com/videos" to """$pad<div class="vrhdata" vrhm='{&quot;du&quot;:&quot;4:13&quot;,&quot;murl&quot;:&quot;https://c.net/clip/9&quot;,&quot;vt&quot;:&quot;Volcano clip&quot;}'></div>""",
-            "www.youtube.com" to """${pad}var ytInitialData = {"videoRenderer":{"videoId":"abcdefghijk","thumbnail":{},"title":{"runs":[{"text":"Volcano & lava"}]},"lengthText":{"accessibility":{"x":{}},"simpleText":"12:05"}}};""",
         )
         val s = Search({ url -> pages.entries.firstOrNull { url.contains(it.key) }?.value ?: "" })
         s.duckduckgo("volcano", 0)[0].let { assertEquals(listOf("https://a.com/volcano", "Volcano video", "Lava!"), listOf(it.url, it.title, it.snippet)) }
         assertEquals("https://b.org/eruption", s.bing("volcano", 0)[0].url)
         s.bingVideos("volcano", 0)[0].let { assertEquals("https://c.net/clip/9", it.url); assertEquals("Volcano clip", it.title); assertEquals(253.0, it.duration!!, 0.0) }
-        s.youtube("volcano", 0)[0].let { assertEquals("abcdefghijk", it.media!!.id); assertEquals("Volcano & lava", it.title); assertEquals(725.0, it.duration!!, 0.0) }
 
         val merged = s.searchWeb("volcano", 0)
-        assertEquals(4, merged.size)
-        assertTrue(merged.map { it.engine }.toSet().size == 4)
+        assertEquals(3, merged.size)
+        assertEquals(setOf("DuckDuckGo", "Bing", "Bing Videos"), merged.map { it.engine }.toSet())
     }
 
     private fun inspect(html: String, url: String = "https://site.com/page"): List<Video> {
@@ -77,9 +75,27 @@ class EngineTest {
     }
 
     @Test fun findsEmbeddedYouTubeAndOgVideo() {
-        assertEquals("youtube", inspect("""<html><body><iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe></body></html>""")[0].provider)
+        assertEquals("vimeo", inspect("""<html><body><iframe src="https://player.vimeo.com/video/76979871"></iframe></body></html>""")[0].provider)
         val og = inspect("""<html><head><meta property="og:video:secure_url" content="https://v.site.com/a.mp4"><meta property="og:video:type" content="video/mp4"></head></html>""")
         assertEquals("https://v.site.com/a.mp4", og[0].src)
+    }
+
+    @Test fun excludesYouTubeEverywhere() {
+        // A page whose only video is YouTube yields nothing…
+        assertTrue(inspect("""<html><head><meta property="og:video:url" content="https://www.youtube.com/embed/dQw4w9WgXcQ"></head>
+            <body><iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe></body></html>""").isEmpty())
+        // …an article with a YouTube embed and its own video plays its own video…
+        val mixed = inspect("""<html><body><iframe src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"></iframe>
+            <video controls width="640" height="360" src="/media/report.webm"></video></body></html>""")
+        assertEquals("https://site.com/media/report.webm", mixed.single().src)
+        // …and YouTube links are dropped from search results.
+        val page = "<!--" + "x".repeat(2500) + "-->" + listOf("https://www.youtube.com/watch?v=abcdefghijk", "https://youtu.be/abcdefghijk",
+            "https://m.youtube.com/watch?v=zzzzzzzzzzz", "https://news.example.org/volcano-video").joinToString("") { "<li class=\"b_algo\"><h2><a href=\"$it\">r</a></h2></li>" }
+        val s = Search({ url -> if ("bing.com/search" in url) page else "" })
+        assertEquals(listOf("https://news.example.org/volcano-video"), s.searchWeb("volcano", 0).map { it.url })
+        assertTrue(Video("embed", "https://www.youtube.com/watch?v=abcdefghijk", provider = "youtube", id = "abcdefghijk").blocked)
+        assertTrue(Video("file", "https://rr1---sn-x.googlevideo.com/videoplayback?id=1").blocked)
+        assertTrue(!Video("file", "https://cdn.example.org/v.mp4", pageUrl = "https://example.org/").blocked)
     }
 
     @Test fun ignoresAdsAndShortClips() {

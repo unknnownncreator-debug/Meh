@@ -12,7 +12,7 @@ import android.webkit.WebViewClient
 import org.json.JSONObject
 
 /**
- * Plays YouTube / Vimeo / Dailymotion videos with the sites' own embedded players,
+ * Plays Vimeo / Dailymotion videos with the sites' own embedded players,
  * reporting started / ended / failed back to the app so autoplay can advance.
  */
 class EmbedPlayer(private val context: Context, private val host: ViewGroup, private val events: Events) {
@@ -68,27 +68,9 @@ class EmbedPlayer(private val context: Context, private val host: ViewGroup, pri
 
     fun play(v: Video, t: Int) {
         token = t
+        if (v.provider == "youtube") { main.post { events.onEmbedFailed(t, "youtube is excluded") }; return }
         val id = JSONObject.quote(v.id ?: "")
         val body = when (v.provider) {
-            "youtube" -> """
-<div id="p"></div>
-<script>
-var T=$t, started=false, player;
-var tag=document.createElement('script'); tag.src='https://www.youtube.com/iframe_api'; tag.onerror=function(){Meh.failed(T,'api')}; document.head.appendChild(tag);
-function onYouTubeIframeAPIReady(){
-  player=new YT.Player('p',{videoId:$id,width:'100%',height:'100%',
-    playerVars:{autoplay:1,playsinline:1,rel:0,modestbranding:1,origin:'https://meh.app'},
-    events:{
-      onReady:function(e){ e.target.playVideo(); setTimeout(function(){ if(!started){ e.target.mute(); e.target.playVideo(); Meh.muted(T); } },2500); },
-      onStateChange:function(e){ if(e.data==1&&!started){ started=true; Meh.started(T); } if(e.data==0) Meh.ended(T); },
-      onError:function(e){ Meh.failed(T,'youtube '+e.data); }
-    }});
-}
-function cmd(c){ if(!player||!player.getPlayerState) return;
-  if(c=='toggle') { player.getPlayerState()==1 ? player.pauseVideo() : player.playVideo(); }
-  if(c=='pause') player.pauseVideo();
-  if(c=='unmute'){ player.unMute(); player.setVolume(100); } }
-</script>"""
             "vimeo" -> """
 <div id="p"></div>
 <script>

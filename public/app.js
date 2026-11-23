@@ -133,13 +133,12 @@ function maybeLoadMore() {
 }
 
 // ---------------------------------------------------------------- playback
-let hls = null, yt = null, vimeo = null, watchdog = null, endTimer = null, token = 0;
+let hls = null, vimeo = null, watchdog = null, endTimer = null, token = 0;
 
 function stopPlayback() {
   token++;
   clearTimeout(watchdog); clearTimeout(endTimer);
   if (hls) { hls.destroy(); hls = null; }
-  if (yt) { try { yt.destroy(); } catch {} yt = null; }
   if (vimeo) { try { vimeo.destroy(); } catch {} vimeo = null; }
   els.video.pause();
   els.video.removeAttribute('src');
@@ -200,7 +199,7 @@ function play(it) {
     els.embed.hidden = false;
     const host = document.createElement('div');
     els.embed.appendChild(host);
-    if (it.provider === 'youtube') return playYouTube(it, host, { started, ended, fail, my });
+    if (it.provider === 'youtube') return fail('youtube is excluded');
     if (it.provider === 'vimeo') return playVimeo(it, host, { started, ended, fail, my });
     return playIframe(it, { started, ended });
   }
@@ -252,29 +251,6 @@ function loadScript(src, ready) {
   });
 }
 
-function playYouTube(it, host, { started, ended, fail, my }) {
-  loadScript('https://www.youtube.com/iframe_api', () => window.YT && YT.Player).then(() => {
-    if (my !== token) return;
-    let didStart = false;
-    yt = new YT.Player(host, {
-      videoId: it.id, width: '100%', height: '100%',
-      playerVars: { autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1 },
-      events: {
-        onReady: (e) => {
-          e.target.playVideo();
-          // If the browser blocked sound, retry muted.
-          setTimeout(() => { if (my === token && !didStart && yt) { yt.mute(); yt.playVideo(); els.unmute.hidden = false; } }, 2500);
-        },
-        onStateChange: (e) => {
-          if (e.data === YT.PlayerState.PLAYING && !didStart) { didStart = true; started(); }
-          if (e.data === YT.PlayerState.ENDED) ended();
-        },
-        onError: () => fail('youtube error'), // removed, private, or embedding disabled
-      },
-    });
-  }).catch(() => fail('youtube api'));
-}
-
 function playVimeo(it, host, { started, ended, fail, my }) {
   loadScript('https://player.vimeo.com/api/player.js', () => window.Vimeo && Vimeo.Player).then(() => {
     if (my !== token) return;
@@ -302,13 +278,11 @@ function playIframe(it, { started, ended }) {
 
 els.unmute.addEventListener('click', () => {
   els.unmute.hidden = true;
-  if (yt) { yt.unMute(); yt.setVolume(100); }
-  else if (vimeo) vimeo.setMuted(false);
+  if (vimeo) vimeo.setMuted(false);
   else { els.video.muted = false; store.set('muted', false); }
 });
 
 function togglePause() {
-  if (yt) { (yt.getPlayerState() === 1) ? yt.pauseVideo() : yt.playVideo(); return; }
   if (vimeo) { vimeo.getPaused().then((p) => (p ? vimeo.play() : vimeo.pause())); return; }
   if (!els.video.hidden) els.video.paused ? els.video.play() : els.video.pause();
 }
@@ -421,8 +395,7 @@ document.addEventListener('keydown', (e) => {
   else if (k === 'p') playPrev();
   else if (k === 'k' || (k === ' ' && e.target === document.body)) { e.preventDefault(); togglePause(); }
   else if (k === 'm') {
-    if (yt) yt.isMuted() ? yt.unMute() : yt.mute();
-    else if (vimeo) vimeo.getMuted().then((m) => vimeo.setMuted(!m));
+    if (vimeo) vimeo.getMuted().then((m) => vimeo.setMuted(!m));
     else els.video.muted = !els.video.muted;
   }
 });

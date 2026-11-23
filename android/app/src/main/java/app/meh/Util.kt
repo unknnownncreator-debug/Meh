@@ -76,6 +76,12 @@ fun queryParams(raw: String?): Map<String, String> {
 
 fun decodeUrl(s: String): String = try { URLDecoder.decode(s, "UTF-8") } catch (e: Exception) { s }
 
+/** YouTube is excluded entirely: its pages, embeds, streams and thumbnails. */
+private val YOUTUBE_HOST = Regex("(^|\\.)(youtube\\.com|youtu\\.be|youtube-nocookie\\.com|googlevideo\\.com|ytimg\\.com)$", IC)
+fun isYouTube(url: String?): Boolean = try {
+    url != null && YOUTUBE_HOST.containsMatchIn(URI(url.trim()).host ?: "")
+} catch (e: Exception) { false }
+
 fun domainOf(url: String): String = try {
     (URI(url).host ?: "").removePrefix("www.")
 } catch (e: Exception) { "" }

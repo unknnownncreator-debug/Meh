@@ -72,35 +72,6 @@ class Search(private val plain: (String) -> String, private val browser: ((Strin
         }
     }
 
-    fun youtube(query: String, page: Int): List<Hit> {
-        if (page > 0) return emptyList()
-        return fetchHits("https://www.youtube.com/results?search_query=${enc(query)}") { html ->
-        val hits = mutableListOf<Hit>()
-        val seen = HashSet<String>()
-        for (chunk in html.split("\"videoRenderer\":{").drop(1)) {
-            val id = Regex("^\"videoId\":\"([\\w-]{11})\"").find(chunk)?.groupValues?.get(1) ?: continue
-            if (!seen.add(id)) continue
-            val body = chunk.take(6000)
-            val title = unescapeJsonString(Regex("\"title\":\\{\"runs\":\\[\\{\"text\":\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"").find(body)?.groupValues?.get(1) ?: "")
-            val len = Regex("\"lengthText\":\\{[\\s\\S]{0,300}?\"simpleText\":\"([\\d:]+)\"").find(body)?.groupValues?.get(1)
-            val desc = unescapeJsonString(Regex("\"(?:descriptionSnippet|detailedMetadataSnippets)\"[\\s\\S]{0,200}?\"text\":\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"").find(body)?.groupValues?.get(1) ?: "")
-            val channel = unescapeJsonString(Regex("\"ownerText\":\\{\"runs\":\\[\\{\"text\":\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"").find(body)?.groupValues?.get(1) ?: "")
-            val pageUrl = "https://www.youtube.com/watch?v=$id"
-            val dur = parseDuration(len)
-            hits += Hit(
-                pageUrl, title, desc, dur,
-                media = Video(
-                    kind = "embed", src = pageUrl, provider = "youtube", id = id, referer = pageUrl,
-                    title = title, description = desc, thumbnail = "https://i.ytimg.com/vi/$id/hqdefault.jpg",
-                    duration = dur, siteName = if (channel.isNotEmpty()) "YouTube · $channel" else "YouTube",
-                    pageUrl = pageUrl, pageTitle = title, pageText = desc, via = "search-page",
-                ),
-            )
-        }
-        hits
-        }
-    }
-
     /**
      * Google's Videos tab: video pages from all over the web. Google only serves results
      * to browsers that run JavaScript, so the plain request parses to nothing and
@@ -112,7 +83,7 @@ class Search(private val plain: (String) -> String, private val browser: ((Strin
     /** Run every engine in parallel and merge round-robin so no engine dominates. */
     fun searchWeb(query: String, page: Int, onEngine: (String, Int) -> Unit = { _, _ -> }): List<Hit> {
         val engines: List<Pair<String, (String, Int) -> List<Hit>>> = listOf(
-            "YouTube" to ::youtube, "Google" to ::google, "Bing Videos" to ::bingVideos, "DuckDuckGo" to ::duckduckgo, "Bing" to ::bing,
+            "Google" to ::google, "Bing" to ::bing, "Bing Videos" to ::bingVideos, "DuckDuckGo" to ::duckduckgo,
         )
         val results = arrayOfNulls<List<Hit>>(engines.size)
         val threads = engines.mapIndexed { i, (name, fn) ->
@@ -129,6 +100,7 @@ class Search(private val plain: (String) -> String, private val browser: ((Strin
         for (i in 0 until (lists.maxOfOrNull { it.size } ?: 0)) {
             for (l in lists) {
                 val h = l.getOrNull(i) ?: continue
+                if (isYouTube(h.url)) continue // YouTube is excluded
                 if (seen.add(normalizeKey(h.url))) merged += h
             }
         }
