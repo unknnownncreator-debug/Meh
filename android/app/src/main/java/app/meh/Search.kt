@@ -9,7 +9,12 @@ import java.net.URLEncoder
  * [fetch] gets a page's HTML; the app passes one that falls back to a real WebView
  * when a plain request is blocked.
  */
-class Search(private val plain: (String) -> String, private val browser: ((String) -> String)? = null) {
+class Search(
+    private val plain: (String) -> String,
+    private val browser: ((String) -> String)? = null,
+    /** GET with headers → (status, body); used for RedGIFs' data service. */
+    private val getJson: (String, Map<String, String>) -> Pair<Int, String>? = Http::get,
+) {
 
     /**
      * Fetch a results page and parse it. If the plain request was blocked, challenged or
@@ -81,10 +86,39 @@ class Search(private val plain: (String) -> String, private val browser: ((Strin
         fetchHits("https://www.google.com/search?q=${enc(query)}&tbm=vid&hl=en&num=20" + if (page > 0) "&start=${page * 20}" else "", ::parseGoogle)
 
     /** Run every engine in parallel and merge round-robin so no engine dominates. */
-    fun searchWeb(query: String, page: Int, onEngine: (String, Int) -> Unit = { _, _ -> }): List<Hit> {
+    // ---------- RedGIFs (opt-in, 18+) ----------
+    // RedGIFs' website is a JavaScript app that loads everything from its data service with a
+    // guest token every visitor gets automatically (no account or key; documented by RedGIFs at
+    // github.com/Redgifs/api/wiki/Temporary-tokens). The token is tied to the caller's address and
+    // browser identity, so the phone fetches and uses its own. Results are the clips' watch pages,
+    // which go through normal page inspection.
+    @Volatile private var redgifsToken: Pair<String, Long>? = null
+
+    private fun token(fresh: Boolean): String? {
+        val cached = redgifsToken
+        if (!fresh && cached != null && System.currentTimeMillis() - cached.second < 12 * 3600_000L) return cached.first
+        val (code, body) = getJson("https://api.redgifs.com/v2/auth/temporary", emptyMap()) ?: return null
+        if (code != 200) return null
+        val t = try { org.json.JSONObject(body).optString("token") } catch (e: Exception) { "" }
+        redgifsToken = if (t.isNotEmpty()) t to System.currentTimeMillis() else null
+        return t.ifEmpty { null }
+    }
+
+    fun redgifs(query: String, page: Int): List<Hit> {
+        val url = "https://api.redgifs.com/v2/gifs/search?search_text=${enc(query)}&order=trending&count=40&page=${page + 1}"
+        for (attempt in 0..1) {
+            val t = token(fresh = attempt > 0) ?: return emptyList() // second try: expired or refused token
+            val (code, body) = getJson(url, mapOf("Authorization" to "Bearer $t")) ?: return emptyList()
+            if (code == 401 || code == 403) continue
+            return if (code == 200) parseRedgifs(body) else emptyList()
+        }
+        return emptyList()
+    }
+
+    fun searchWeb(query: String, page: Int, includeRedgifs: Boolean = false, onEngine: (String, Int) -> Unit = { _, _ -> }): List<Hit> {
         val engines: List<Pair<String, (String, Int) -> List<Hit>>> = listOf(
             "Google" to ::google, "Bing" to ::bing, "Bing Videos" to ::bingVideos, "DuckDuckGo" to ::duckduckgo,
-        )
+        ) + (if (includeRedgifs) listOf("RedGIFs" to ::redgifs) else emptyList())
         val results = arrayOfNulls<List<Hit>>(engines.size)
         val threads = engines.mapIndexed { i, (name, fn) ->
             Thread {
@@ -101,6 +135,7 @@ class Search(private val plain: (String) -> String, private val browser: ((Strin
             for (l in lists) {
                 val h = l.getOrNull(i) ?: continue
                 if (isBlockedSite(h.url)) continue // excluded sites (YouTube, TikTok)
+                if (!includeRedgifs && isRedgifs(h.url)) continue // RedGIFs switched off
                 if (seen.add(normalizeKey(h.url))) merged += h
             }
         }
@@ -108,6 +143,26 @@ class Search(private val plain: (String) -> String, private val browser: ((Strin
     }
 
     companion object {
+        fun parseRedgifs(json: String): List<Hit> {
+            val gifs = try { org.json.JSONObject(json).optJSONArray("gifs") } catch (e: Throwable) { null } ?: return emptyList()
+            val hits = mutableListOf<Hit>()
+            for (i in 0 until gifs.length()) {
+                val g = gifs.optJSONObject(i) ?: continue
+                val id = g.optString("id")
+                if (!Regex("^[A-Za-z0-9]+$").matches(id) || g.optJSONObject("urls")?.optString("hd").isNullOrEmpty()) continue
+                if (g.optInt("type", 1) == 2) continue // 2 = still image
+                val tags = g.optJSONArray("tags")?.let { a -> (0 until a.length()).mapNotNull { a.opt(it) as? String } } ?: emptyList()
+                val d = g.optDouble("duration", 0.0)
+                hits += Hit(
+                    url = "https://www.redgifs.com/watch/${id.lowercase()}",
+                    title = stripTags(g.optString("description")).take(200).ifEmpty { tags.take(6).joinToString(" ") },
+                    snippet = tags.joinToString(", "),
+                    duration = if (d > 0) d else null,
+                )
+            }
+            return hits
+        }
+
         private val GOOGLE_OWN = Regex("(^|\\.)(google\\.[a-z.]+|gstatic\\.com|googleusercontent\\.com|googleadservices\\.com|googlesyndication\\.com|doubleclick\\.net)$", RegexOption.IGNORE_CASE)
         private val ANCHOR = Regex("<a\\b([^>]{0,3000})>([\\s\\S]{0,6000}?)</a>", RegexOption.IGNORE_CASE)
 

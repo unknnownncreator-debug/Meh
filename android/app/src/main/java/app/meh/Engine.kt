@@ -28,23 +28,24 @@ class Engine(private val scope: CoroutineScope, private val web: WebInspector) {
     private var job: Job? = null
     val busy get() = job?.isActive == true
 
-    private val search = Search(Http::getHtml) { url -> runBlocking { web.fetchHtml(url) } }
+    private val search = Search(Http::getHtml, browser = { url -> runBlocking { web.fetchHtml(url) } })
 
     fun cancel() { job?.cancel(); job = null }
 
-    fun run(query: String, page: Int, listener: Listener) {
+    fun run(query: String, page: Int, includeRedgifs: Boolean, listener: Listener) {
         cancel()
         job = scope.launch {
             var found = 0
             val emit: suspend (Video, Hit) -> Unit = emit@{ v, hit ->
                 if (v.blocked) return@emit // excluded sites (YouTube, TikTok)
+                if (!includeRedgifs && (isRedgifs(v.pageUrl) || isRedgifs(v.src))) return@emit // RedGIFs switched off
                 v.score = Ranker.score(query, v, hit.rank)
                 found++
                 withContext(Dispatchers.Main) { listener.onVideo(v) }
             }
             listener.onStatus(if (page == 0) "Searching the web…" else "Finding more videos…")
             val hits = withContext(Dispatchers.IO) {
-                search.searchWeb(query, page) { name, n -> scope.launch(Dispatchers.Main) { if (busy) listener.onStatus("$name: $n results") } }
+                search.searchWeb(query, page, includeRedgifs) { name, n -> scope.launch(Dispatchers.Main) { if (busy) listener.onStatus("$name: $n results") } }
             }
             val queue = hits.take(MAX_PAGES)
             if (queue.isEmpty()) {

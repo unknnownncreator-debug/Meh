@@ -103,6 +103,15 @@ fun isBlockedSite(url: String?): Boolean = try {
     url != null && BLOCKED_HOST.containsMatchIn(URI(url.trim()).host ?: "")
 } catch (e: Exception) { false }
 
+/** RedGIFs (opt-in, 18+). */
+fun isRedgifs(url: String?): Boolean = try {
+    url != null && Regex("(^|\\.)redgifs\\.com$", IC).containsMatchIn(URI(url.trim()).host ?: "")
+} catch (e: Exception) { false }
+
+/** RedGIFs pages declare the *silent* copy ("Name-silent.mp4"); without the suffix is the copy with sound. */
+fun withSound(url: String): String =
+    url.replace(Regex("^(https?://media\\.redgifs\\.com/[A-Za-z0-9]+)-silent\\.mp4", IC), "$1.mp4")
+
 fun domainOf(url: String): String = try {
     (URI(url).host ?: "").removePrefix("www.")
 } catch (e: Exception) { "" }

@@ -196,6 +196,60 @@ function readSse(url) {
     }
   });
 
+  await step('RedGIFs: sound version, search engine with guest token, opt-in switch', async () => {
+    const { withSound } = require('../lib/util');
+    const { parseRedgifs, searchWeb, ENGINES } = require('../lib/search');
+    const insp = require('../lib/inspector');
+    assert.equal(withSound('https://media.redgifs.com/AbleGiddyCanary-silent.mp4'), 'https://media.redgifs.com/AbleGiddyCanary.mp4');
+    assert.equal(withSound('https://media.redgifs.com/AbleGiddyCanary-mobile.mp4'), 'https://media.redgifs.com/AbleGiddyCanary-mobile.mp4');
+    assert.equal(withSound('https://cdn.example.org/clip-silent.mp4'), 'https://cdn.example.org/clip-silent.mp4', 'only RedGIFs files');
+
+    // A watch page shaped like RedGIFs' real ones: it declares the silent copy, plus its player page.
+    const watch = `<html><head><title>Clip</title><meta property="og:type" content="video/other">
+      <meta property="og:video" content="https://media.redgifs.com/AbleGiddyCanary-silent.mp4"><meta property="og:video:type" content="video/mp4">
+      <meta property="og:video:iframe" content="https://www.redgifs.com/ifr/ablegiddycanary"><meta name="twitter:player" content="https://www.redgifs.com/ifr/ablegiddycanary">
+      <script type="application/ld+json">{"@type":"SocialMediaPosting","video":{"@type":"VideoObject","contentUrl":"https://media.redgifs.com/AbleGiddyCanary-silent.mp4"}}</script></head></html>`;
+    const cands = insp.candidatesFromProbe(insp.parseStaticHtml(watch, 'https://www.redgifs.com/watch/ablegiddycanary'));
+    assert.ok(cands.length && cands.every((c) => c.src === 'https://media.redgifs.com/AbleGiddyCanary.mp4'), JSON.stringify(cands.map((c) => c.src)));
+
+    const data = { gifs: [
+      { id: 'AbleGiddyCanary', type: 1, duration: 33.6, description: 'Volcano clip', tags: ['Nature'], urls: { hd: 'https://media.redgifs.com/AbleGiddyCanary.mp4' } },
+      { id: 'StillPicture', type: 2, duration: 0, urls: { hd: 'https://media.redgifs.com/StillPicture.jpg' } },
+      { id: 'bad id!', type: 1, urls: { hd: 'x' } },
+      { id: 'NoTitle', type: 1, duration: 12, tags: ['Lava', 'Night'], urls: { hd: 'https://media.redgifs.com/NoTitle.mp4' } },
+    ] };
+    assert.deepEqual(parseRedgifs(data).map((h) => [h.url, h.title, h.duration]), [
+      ['https://www.redgifs.com/watch/ablegiddycanary', 'Volcano clip', 33.6],
+      ['https://www.redgifs.com/watch/notitle', 'Lava Night', 12],
+    ]);
+
+    // Guest token: fetched once, reused, and renewed once when refused.
+    const realFetch = global.fetch;
+    const calls = [];
+    let tokenNo = 0;
+    global.fetch = async (url, opts = {}) => {
+      url = String(url); calls.push(url.replace(/\?.*/, ''));
+      if (url.endsWith('/v2/auth/temporary')) return Response.json({ token: `t${++tokenNo}` });
+      if (url.includes('/v2/gifs/search')) {
+        if (opts.headers.Authorization === 'Bearer t1' && calls.filter((c) => c.endsWith('/search')).length === 2) return new Response('', { status: 401 });
+        return Response.json(data);
+      }
+      return new Response('', { status: 404 });
+    };
+    try {
+      assert.equal((await ENGINES.redgifs('volcano', 0)).length, 2);
+      assert.equal((await ENGINES.redgifs('volcano', 0)).length, 2, 'refused token renewed');
+      assert.equal(calls.filter((c) => c.endsWith('/temporary')).length, 2, 'token fetched once, renewed once');
+      // Switched off: not searched, and RedGIFs links from other engines are dropped.
+      const page = '<!--' + 'x'.repeat(2500) + '--><li class="b_algo"><h2><a href="https://www.redgifs.com/watch/x">r</a></h2></li><li class="b_algo"><h2><a href="https://news.example.org/v">n</a></h2></li>';
+      global.fetch = async () => new Response(page, { status: 200, headers: { 'content-type': 'text/html' } });
+      assert.deepEqual((await searchWeb('volcano', { engines: ['bing'] })).map((h) => h.url), ['https://news.example.org/v']);
+      assert.equal((await searchWeb('volcano', { engines: ['bing'], includeRedgifs: true })).length, 2);
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+
   await step('rewrites HLS playlists through the proxy', () => {
     const out = rewritePlaylist('#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"\nseg0.ts\nhttps://cdn.x/seg1.ts', 'https://h.com/v/index.m3u8', 'https://h.com/page');
     assert.match(out, /URI="\/proxy\?u=https%3A%2F%2Fh\.com%2Fv%2Fkey\.bin&r=/);

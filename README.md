@@ -58,6 +58,10 @@ Players usually request their **pre-roll ad first** and the real video only afte
 3. **The page's own length.** The app reads each video's actual length from the start of the file (MP4 `mvhd` header, WebM `Duration`, or the HLS segment list) without downloading it (`lib/media.js`, `MediaProbe.kt`). If the page says its video is, say, 5 minutes long, a clip shorter than half that is rejected. There is no general length limit any more, so short clips play; only near-empty clips under 5 seconds are skipped.
 4. **Known ad servers** are blocked outright. The page being inspected is never blocked itself, even if its address contains words like "preroll".
 
+## RedGIFs (opt-in, 18+)
+
+RedGIFs is mostly adult content, so it sits behind an **Include RedGIFs (18+)** switch (on the results screen; remembered). While it's on, RedGIFs is searched alongside the other engines: its website loads everything from its data service with a guest token every visitor gets automatically (no account or key — see RedGIFs' [temporary tokens](https://github.com/Redgifs/api/wiki/Temporary-tokens)), and the app does the same. RedGIFs pages declare the *silent* copy of each clip, so the app always plays the copy with sound. While the switch is off, RedGIFs isn't contacted and RedGIFs clips found by other engines are hidden.
+
 ## Excluded sites
 
 **YouTube and TikTok never show up.** YouTube isn't searched. Any YouTube or TikTok links the other engines return are dropped, and YouTube or TikTok players embedded in articles are ignored (the article's own video plays instead, if it has one). A final check keeps them out of the queue. The list is `BLOCKED_SITES` in `lib/util.js` (desktop) and `android/app/src/main/java/app/meh/Util.kt` (Android); add a domain there to exclude another site.

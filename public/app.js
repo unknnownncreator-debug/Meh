@@ -6,7 +6,7 @@ const els = {
   form: $('search'), q: $('q'), stage: document.querySelector('.stage'),
   video: $('video'), embed: $('embed'), overlay: $('overlay'), overlayText: $('overlayText'),
   title: $('nowTitle'), source: $('nowSource'), kind: $('nowKind'), score: $('nowScore'), desc: $('nowDesc'),
-  prev: $('prev'), next: $('next'), unmute: $('unmute'), autoplay: $('autoplay'), skipWatched: $('skipWatched'),
+  prev: $('prev'), next: $('next'), unmute: $('unmute'), autoplay: $('autoplay'), skipWatched: $('skipWatched'), redgifs: $('redgifs'),
   status: $('status'), dot: $('statusDot'), queue: $('queue'), queueCount: $('queueCount'),
 };
 
@@ -25,6 +25,10 @@ els.autoplay.checked = store.get('autoplay', true);
 els.skipWatched.checked = store.get('skipWatched', true);
 els.autoplay.addEventListener('change', () => store.set('autoplay', els.autoplay.checked));
 els.skipWatched.addEventListener('change', () => { store.set('skipWatched', els.skipWatched.checked); renderQueue(); });
+// RedGIFs is opt-in content (18+): searched only while this is on, and hidden from the queue when off.
+els.redgifs.checked = store.get('redgifs', true);
+els.redgifs.addEventListener('change', () => { store.set('redgifs', els.redgifs.checked); renderQueue(); });
+const isRedgifsItem = (it) => /(^|\.)redgifs\.com$/i.test(it.site || '');
 
 // ---------------------------------------------------------------- state
 let S = null; // current search session
@@ -40,7 +44,7 @@ function newSession(q) {
 // Ranked queue: highest relevance first, gently spreading sites out so one domain
 // can't take over, watched videos last (or hidden).
 function upcoming() {
-  const pool = [...S.items.values()].filter((it) => it.key !== S.current && !S.played.has(it.key) && !S.failed.has(it.key));
+  const pool = [...S.items.values()].filter((it) => it.key !== S.current && !S.played.has(it.key) && !S.failed.has(it.key) && (els.redgifs.checked || !isRedgifsItem(it)));
   const fresh = pool.filter((it) => !watched.has(it.key));
   const old = els.skipWatched.checked ? [] : pool.filter((it) => watched.has(it.key));
   const order = (list) => {
@@ -85,7 +89,7 @@ function loadPage(page) {
   session.loading = true;
   session.page = page;
   setStatus(page ? 'Finding more videos…' : 'Searching the web…', false);
-  const es = new EventSource(`/api/search?q=${encodeURIComponent(session.q)}&page=${page}`);
+  const es = new EventSource(`/api/search?q=${encodeURIComponent(session.q)}&page=${page}${els.redgifs.checked ? '&redgifs=1' : ''}`);
   session.sources.push(es);
 
   es.addEventListener('status', (e) => {

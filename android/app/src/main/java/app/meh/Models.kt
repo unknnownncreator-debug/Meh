@@ -78,4 +78,14 @@ object Http {
             }
         }
     } catch (e: Exception) { "" }
+
+    /** GET with extra headers; returns (status, body) or null if unreachable. Blocking. */
+    fun get(url: String, headers: Map<String, String>): Pair<Int, String>? = try {
+        val req = Request.Builder().url(url).header("User-Agent", DESKTOP_UA).apply { headers.forEach { (k, v) -> header(k, v) } }.build()
+        client.newCall(req).execute().use { res ->
+            val src = res.body.source()
+            src.request(4_000_000)
+            res.code to src.buffer.readUtf8(minOf(src.buffer.size, 4_000_000))
+        }
+    } catch (e: Exception) { null }
 }

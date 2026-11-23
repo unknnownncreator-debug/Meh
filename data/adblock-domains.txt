@@ -1,4 +1,4 @@
-# Ad-server domains for meh's ad blocker. 43192 domains.
+# Ad-server domains for meh's ad blocker. 43202 domains.
 # Source: EasyList ad servers (https://raw.githubusercontent.com/easylist/easylist/master/easylist/easylist_adservers.txt), 2026-11-23.
 # EasyList is dual-licensed GPLv3 / CC BY-SA 3.0 — https://easylist.to
 # Regenerate with: node tools/update-adblock.js
@@ -5444,6 +5444,7 @@ bnmymxvlfcxbx.space
 bnp3.com
 bnpubjzodmhew.site
 bnpuybapfktzr.online
+bnqwba.com
 bnr.sys.lv
 bnrdom.com
 bnrhzqmmenger.site
@@ -7382,6 +7383,7 @@ cjutqvopetliy.space
 cjvdfw.com
 cjwvyhvwyispv.website
 cjwyzhzjwmzmf.site
+cjyartrhgwcks.space
 cjyaudpjmp.com
 cjzxhimedlzra.online
 ck-cdn.com
@@ -10012,6 +10014,7 @@ dkrcknnrtmiqv.site
 dkrlnbfvypglb.site
 dkryxucmwgicc.space
 dktjigphteqdi.site
+dkuoxtdptdmupt.com
 dkwwiibjjvawu.website
 dkxqafejvrfai.website
 dkxtzubbtmzie.space
@@ -15265,6 +15268,7 @@ gqbpnoupitmly.site
 gqbqfkmonlphb.site
 gqcyumr.com
 gqdajtjwzbikn.space
+gqdnvupzqvnmz.site
 gqfck5gnwf88zjqq6pepmwvfg48.cfd
 gqfpqtbdok.com
 gqgyurwgwlcux.space
@@ -16360,6 +16364,7 @@ hhmrsmghtbdln.site
 hhoiaeqnqppsh.site
 hhoimnhzekcdb.site
 hhoviwwweqa.in
+hhqcqdaausfjw.online
 hhqiglbfabbdf.space
 hhrbryqfizuzv.site
 hhrpqxcdyauxs.online
@@ -19603,6 +19608,7 @@ junkyyolden.com
 junlxlbsqp.com
 juntol.xyz
 juntospassirwindill.cfd
+junweemjxevvi.website
 juoanvouymacf.site
 juokkbdsqxgak.site
 jupfpdiuxepep.online
@@ -19882,6 +19888,7 @@ kavanga.ru
 kavblcvs.com
 kavcapfpjbhpn.space
 kavekduhupvky.space
+kawakaukuleleistrian.cfd
 kawtsayrnwyar.store
 kayanwashery.cyou
 kaynpjgtbwjuv.website
@@ -25128,6 +25135,7 @@ npksgwynwupzp.space
 npkwklwnjnvzpj.com
 nplutstbfgyso.online
 npmfetklmwfzj.online
+npmiivlloceyf.website
 npmpkifgbiqar.online
 npmtyfajkldkj.space
 npocsfzbtijlt.online
@@ -38001,6 +38009,7 @@ uzihdotfqfoof.site
 uzjvhbzumhnkg.online
 uzjzdtaiijqhy.online
 uzlycrnh.com
+uznelnuamjsxb.website
 uznjfsbpxetzo.site
 uzocxzrbkcrpk.online
 uzomkrhmlseld.online
@@ -42168,6 +42177,7 @@ ywbflroaxaeiu.website
 ywcasnooted.qpon
 ywcbkw6wxtg6o8tlhbzlkbxnzy3.cfd
 ywcorovtblhap.online
+ywcqropdg.com
 ywdxitjjvljdj.site
 ywfwgkclolrob.space
 ywfxjkoaeiojz.site

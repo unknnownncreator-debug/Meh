@@ -77,6 +77,7 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
     private lateinit var unmute: Button
     private lateinit var autoplay: CheckBox
     private lateinit var skipWatched: CheckBox
+    private lateinit var redgifs: CheckBox
     private lateinit var status: TextView
     private lateinit var statusDot: ImageView
     private lateinit var queue: LinearLayout
@@ -126,6 +127,9 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
         skipWatched.isChecked = prefs.getBoolean("skipWatched", true)
         autoplay.setOnCheckedChangeListener { _, v -> prefs.edit().putBoolean("autoplay", v).apply() }
         skipWatched.setOnCheckedChangeListener { _, v -> prefs.edit().putBoolean("skipWatched", v).apply(); renderQueue() }
+        // RedGIFs is opt-in content (18+): searched only while this is on, hidden from the queue when off.
+        redgifs.isChecked = prefs.getBoolean("redgifs", true)
+        redgifs.setOnCheckedChangeListener { _, v -> prefs.edit().putBoolean("redgifs", v).apply(); renderQueue() }
 
         try {
             web = WebInspector(this, findViewById(R.id.inspectorHost))
@@ -191,7 +195,7 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
         overlay = findViewById(R.id.overlay); overlaySpinner = findViewById(R.id.overlaySpinner); overlayText = findViewById(R.id.overlayText)
         nowTitle = findViewById(R.id.nowTitle); nowSource = findViewById(R.id.nowSource); nowKind = findViewById(R.id.nowKind)
         nowScore = findViewById(R.id.nowScore); nowDesc = findViewById(R.id.nowDesc); unmute = findViewById(R.id.unmute)
-        autoplay = findViewById(R.id.autoplay); skipWatched = findViewById(R.id.skipWatched)
+        autoplay = findViewById(R.id.autoplay); skipWatched = findViewById(R.id.skipWatched); redgifs = findViewById(R.id.redgifs)
         status = findViewById(R.id.status); statusDot = findViewById(R.id.statusDot)
         queue = findViewById(R.id.queue); queueCount = findViewById(R.id.queueCount)
     }
@@ -253,7 +257,7 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
         page = p
         loading = true
         setStatus(if (p == 0) "Searching the web…" else "Finding more videos…", done = false)
-        engine.run(query, p, this)
+        engine.run(query, p, redgifs.isChecked, this)
     }
 
     override fun onStatus(message: String) {
@@ -298,7 +302,7 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
 
     /** Ranked queue: best matches first, sites spread out, watched videos last or hidden. */
     private fun upcoming(): List<Video> {
-        val pool = items.values.filter { it.key != current && it.key !in played && it.key !in failed }
+        val pool = items.values.filter { it.key != current && it.key !in played && it.key !in failed && (redgifs.isChecked || !isRedgifs(it.pageUrl.ifEmpty { it.src })) }
         val fresh = pool.filter { it.key !in watched }
         val old = if (skipWatched.isChecked) emptyList() else pool.filter { it.key in watched }
         return Ranker.order(fresh) + Ranker.order(old)

@@ -230,7 +230,7 @@ object Inspector {
     private fun candidateFromUrl(src: String?, base: String, origin: String, referer: String, type: String = "",
                                  title: String = "", description: String = "", thumbnail: String? = null,
                                  duration: Double? = null, tooSmall: Boolean = false, ad: Boolean = false): Candidate? {
-        val url = absolute(src, base) ?: return null
+        val url = absolute(src, base)?.let(::withSound) ?: return null
         if (url.startsWith("blob:") || url.startsWith("data:") || isAdUrl(url)) return null
         embedFromUrl(url)?.let { return Candidate("embed", url, origin, referer, it.provider, it.id, type, title, description, thumbnail, duration) }
         val kind = mediaKindFromUrl(url, type)
@@ -257,10 +257,11 @@ object Inspector {
             }
         }
         val m = p.metas
-        val ogType = m["og:video:type"] ?: m["twitter:player:stream:content_type"] ?: ""
         val ogDur = parseDuration(m["video:duration"] ?: m["og:video:duration"] ?: m["duration"])
         for (k in listOf("og:video:secure_url", "og:video:url", "og:video", "twitter:player:stream", "twitter:player")) {
-            candidateFromUrl(m[k], base, "og", base, ogType, duration = ogDur)?.let { out += it }
+            // Each type label describes only its own address (twitter:player is a web page, not a file).
+            val type = when { k.startsWith("og:") -> m["og:video:type"]; k == "twitter:player:stream" -> m["twitter:player:stream:content_type"]; else -> null } ?: ""
+            candidateFromUrl(m[k], base, "og", base, type, duration = ogDur)?.let { out += it }
         }
         for (v in p.videos) {
             // Only sizes we actually know count: a missing height is unknown, not zero.

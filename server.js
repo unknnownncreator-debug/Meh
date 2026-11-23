@@ -5,11 +5,11 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { searchWeb } = require('./lib/search');
+const { searchWeb, DEFAULT_ENGINES } = require('./lib/search');
 const { inspectPage, browserFetch, shutdown } = require('./lib/inspector');
 const { scoreItem } = require('./lib/ranker');
 const { handleProxy, proxyUrl } = require('./lib/proxy');
-const { isBlockedVideo } = require('./lib/util');
+const { isBlockedVideo, isRedgifs } = require('./lib/util');
 const { blockedCount } = require('./lib/adblock');
 
 const PORT = +process.env.PORT || 3000;
@@ -50,6 +50,7 @@ function serveStatic(req, res, pathname) {
 
 async function handleSearch(req, res, query) {
   const q = (query.get('q') || '').trim().slice(0, 200);
+  const includeRedgifs = query.get('redgifs') === '1';
   const page = Math.max(0, Math.min(10, +query.get('page') || 0));
   if (!q) { res.writeHead(400).end('missing q'); return; }
 
@@ -66,6 +67,7 @@ async function handleSearch(req, res, query) {
 
   const emit = (item, hit) => {
     if (isBlockedVideo(item)) return; // excluded sites (YouTube, TikTok)
+    if (!includeRedgifs && (isRedgifs(item.pageUrl || '') || isRedgifs(item.src))) return; // RedGIFs switched off
     const key = item.kind === 'embed' ? `${item.provider}:${item.id}` : item.src.replace(/[?#].*$/, '');
     if (seenMedia.has(key)) return;
     seenMedia.add(key);
@@ -85,7 +87,8 @@ async function handleSearch(req, res, query) {
     const hits = TEST_PAGES
       ? TEST_PAGES.map((url, rank) => ({ url, title: '', snippet: '', engine: 'test', rank }))
       : await searchWeb(q, {
-        page, browserFetch,
+        page, browserFetch, includeRedgifs,
+        engines: includeRedgifs ? [...DEFAULT_ENGINES, 'redgifs'] : DEFAULT_ENGINES,
         onEngine: (name, n, ms) => { stats.engines[name] = n; status(`${name}: ${n} results (${ms} ms)`); },
       });
     const queue = hits.slice(0, MAX_PAGES);
