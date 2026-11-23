@@ -17,6 +17,22 @@ object SkipReason {
     }
 
     /**
+     * What to try after a failure in [mode]: the app's player → a Chrome player presenting itself
+     * as the site's page (Chrome's decoders, network stack and cookies) → the site's own page.
+     * Null = give up. Copy-protected (DRM) video can't be helped by any player.
+     */
+    fun nextMode(mode: String, kind: String, pageUrl: String, code: Int? = null): String? = when {
+        kind == "embed" -> null
+        code != null && code in 6000..6999 -> null
+        mode == "exo" -> "web"
+        mode == "web" && pageUrl.startsWith("http") -> "page"
+        else -> null
+    }
+
+    const val WEB_FAILED = "Chrome's player couldn't play it either"
+    const val PAGE_FAILED = "its own page wouldn't play it here"
+
+    /**
      * Refused, expired or vanished links often work again with a fresh link from the page
      * (sites put short-lived tokens in video URLs), so those are worth one more try.
      */

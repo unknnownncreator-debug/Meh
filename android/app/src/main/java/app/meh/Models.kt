@@ -35,6 +35,8 @@ data class Video(
     val userAgent: String = DESKTOP_UA,
     /** Already re-fetched once after a failed play. */
     val refreshed: Boolean = false,
+    /** How it's played: "exo" (the app's player), "web" (Chrome player) or "page" (the site's own page). */
+    val mode: String = "exo",
 ) {
     /** A found video we refuse to play (YouTube, TikTok). */
     val blocked: Boolean get() = provider == "youtube" || isBlockedSite(src) || isBlockedSite(pageUrl)

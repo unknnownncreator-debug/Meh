@@ -34,6 +34,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
@@ -146,7 +147,8 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
         engine = Engine(scope, web)
         images = ImageLoader(scope)
 
-        exo = ExoPlayer.Builder(this).build()
+        // If the phone's preferred (hardware) decoder can't handle a video, try its others too.
+        exo = ExoPlayer.Builder(this, DefaultRenderersFactory(this).setEnableDecoderFallback(true)).build()
         playerView.player = exo
         exo.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -158,7 +160,7 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
             override fun onPlayerError(error: PlaybackException) {
                 val http = (error.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
                 android.util.Log.w("meh", "player error ${error.errorCodeName} http=$http")
-                failCurrent(SkipReason.describe(error.errorCode, http), refresh = SkipReason.worthRefreshing(error.errorCode, http))
+                failCurrent(SkipReason.describe(error.errorCode, http), refresh = SkipReason.worthRefreshing(error.errorCode, http), code = error.errorCode)
             }
         })
 
@@ -344,11 +346,17 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
         setOverlay("Loading video…", busy = true)
         ui.postDelayed(watchdog, if (v.kind == "embed") 20_000 else 20_000)
 
-        if (v.kind == "embed") {
+        if (v.kind == "embed" || v.mode != "exo") {
             playerView.visibility = View.GONE
             embedBox.visibility = View.VISIBLE
             embed.resume()
-            embed.play(v, t)
+            when {
+                v.kind == "embed" -> embed.play(v, t)
+                v.mode == "web" -> embed.playWeb(v, t)
+                else -> embed.playPage(v, t)
+            }
+            // Site pages can't always report the end of their video: advance after its length.
+            if (v.mode == "page" && v.duration != null) ui.postDelayed(embedEnd, ((v.duration + 3) * 1000).toLong())
             if (v.provider == "dailymotion" && v.duration != null) ui.postDelayed(embedEnd, ((v.duration + 3) * 1000).toLong())
             return
         }
@@ -401,7 +409,7 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
      * The current video can't be played. If a fresh link might help (refused / expired
      * link), reopen its page once to get a new one; otherwise skip it, saying why.
      */
-    private fun failCurrent(why: String, refresh: Boolean = false) {
+    private fun failCurrent(why: String, refresh: Boolean = false, code: Int? = null) {
         val key = current ?: return
         val v = items[key]
         android.util.Log.w("meh", "can't play ${v?.src}: $why")
@@ -416,13 +424,29 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
                     st.videos.ifEmpty { web.inspect(hit, st.probe) }.firstOrNull { !it.blocked }
                 } catch (e: Exception) { null }
                 if (t != token) return@launch // user moved on meanwhile
-                if (fresh == null) { skip(key, v, why); return@launch }
+                if (fresh == null) { fallbackOrSkip(key, v, why, code); return@launch }
                 val retry = fresh.copy(refreshed = true, title = v.title.ifEmpty { fresh.title }).also { it.score = v.score }
                 items.remove(key)
                 items[retry.key] = retry
                 current = null
                 play(retry)
             }
+            return
+        }
+        fallbackOrSkip(key, v, why, code)
+    }
+
+    /** Before giving up, try Chrome's player, then the site's own page; otherwise skip. */
+    private fun fallbackOrSkip(key: String, v: Video?, why: String, code: Int?) {
+        val t = token
+        val next = v?.let { SkipReason.nextMode(it.mode, it.kind, it.pageUrl, code) }
+        if (v != null && next != null) {
+            setOverlay(if (next == "web") "Couldn't play it directly ($why) — trying Chrome's player…" else "Still no luck — opening it on ${v.site}…", busy = true)
+            val retry = v.copy(mode = next).also { it.score = v.score }
+            items.remove(key)
+            items[retry.key] = retry
+            current = null
+            ui.postDelayed({ if (t == token) play(retry) }, 600)
             return
         }
         skip(key, v, why)
@@ -442,7 +466,14 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
     override fun onEmbedStarted(token: Int) { if (token == this.token) started() }
     override fun onEmbedEnded(token: Int) { if (token == this.token) advanceAfterEnd() }
     override fun onEmbedFailed(token: Int, why: String) {
-        if (token == this.token) failCurrent(if (why == "player crashed") "the player crashed" else "the owner doesn't allow it to be played here, or it was removed")
+        if (token != this.token) return
+        val v = current?.let { items[it] }
+        failCurrent(when {
+            why == "player crashed" -> "the player crashed"
+            v?.mode == "web" -> SkipReason.WEB_FAILED
+            v?.mode == "page" -> SkipReason.PAGE_FAILED
+            else -> "the owner doesn't allow it to be played here, or it was removed"
+        })
     }
     override fun onEmbedMuted(token: Int) { if (token == this.token) unmute.visibility = View.VISIBLE }
 

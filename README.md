@@ -47,6 +47,16 @@ Then open **http://localhost:3000**, type something, and press Enter.
    - Video is streamed through the local server (`lib/proxy.js`) with the right `Referer` header, so sites that block other players still work.
    - When a video ends, the next one starts. A video that fails to load is skipped. When the queue runs low, the next page of search results is fetched.
 
+## When a video won't play (Android)
+
+Each video gets up to three tries before it's skipped:
+
+1. **The app's own player** (ExoPlayer, with software-decoder fallback), sending the same cookies, browser identity and referring page the hidden browser used. If the site refuses or the link has expired, the page is reopened once for a fresh link.
+2. **Chrome's player.** The video plays in a bare Chrome player that presents itself as the video's page. Chrome brings its own decoders (VP9/AV1/… in software where the phone's hardware can't), its own network stack (which bot-protected sites accept), and the page's cookies. HLS uses Chrome's native support, or the bundled hls.js.
+3. **The site's own page.** The original page is opened, its biggest video started and enlarged to fill the screen.
+
+Copy-protected (DRM) video is skipped straight away; no player can help there. When a video is skipped, the screen says why. `npm run test:players` runs the Android app's fallback players in real Chromium.
+
 ## Ads
 
 **Ad blocker.** Both versions block about 43,000 ad and tracking domains: EasyList's ad-server list plus the main video-ad networks (Google IMA/DoubleClick, FreeWheel, SpotX, Teads, …). The list is `data/adblock-domains.txt`; refresh it with `node tools/update-adblock.js`. It applies to everything the hidden browser loads and, on Android, to the Vimeo/Dailymotion players. Blocking the ad *scripts* means most players never load an ad at all and go straight to the real video. The status line shows how many ads were blocked per search. Hosts the app needs for real video (Vimeo, Dailymotion, JW Player, Brightcove, big CDNs) are never blocked. EasyList is dual-licensed GPLv3 / CC BY-SA 3.0.

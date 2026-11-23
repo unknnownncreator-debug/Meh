@@ -12,8 +12,12 @@ import android.webkit.WebViewClient
 import org.json.JSONObject
 
 /**
- * Plays Vimeo / Dailymotion videos with the sites' own embedded players,
- * reporting started / ended / failed back to the app so autoplay can advance.
+ * Plays videos inside Chrome (the phone's WebView), reporting started / ended / failed back to
+ * the app so autoplay can advance:
+ *  - Vimeo / Dailymotion with the sites' own embedded players ([play]);
+ *  - any video in a bare Chrome player that presents itself as the video's page ([playWeb]);
+ *  - the video's own page, with its biggest video started and enlarged ([playPage]).
+ * The last two are fallbacks for videos the app's own player can't play (format / refused).
  */
 class EmbedPlayer(private val context: Context, private val host: ViewGroup, private val events: Events) {
 
@@ -26,6 +30,8 @@ class EmbedPlayer(private val context: Context, private val host: ViewGroup, pri
 
     private val main = Handler(Looper.getMainLooper())
     private var token = 0
+    /** Showing a site's own page: allow its navigations, inject the player script when loaded. */
+    @Volatile private var pageMode = false
 
     private var web = makeWeb()
 
@@ -40,14 +46,25 @@ class EmbedPlayer(private val context: Context, private val host: ViewGroup, pri
             // Ad blocker for the embedded players (Dailymotion in particular runs ads).
             // Background thread: never touch the WebView here, never let an error escape.
             override fun shouldInterceptRequest(view: WebView, request: android.webkit.WebResourceRequest): android.webkit.WebResourceResponse? = try {
-                if (!request.isForMainFrame && isAdUrl(request.url.toString())) {
+                if (request.url.path == PlayerPages.HLS_JS_PATH) {
+                    // The Chrome player's HLS library, bundled in the app (on whatever origin it runs).
+                    android.webkit.WebResourceResponse("application/javascript", "utf-8", context.assets.open("hls.min.js"))
+                } else if (!request.isForMainFrame && isAdUrl(request.url.toString())) {
                     Blocklist.blocked.incrementAndGet()
                     android.webkit.WebResourceResponse("text/plain", "utf-8", java.io.ByteArrayInputStream(ByteArray(0)))
                 } else null
             } catch (e: Throwable) { null }
 
-            // Keep the player page in place: links inside the embed must not navigate away.
-            override fun shouldOverrideUrlLoading(view: WebView, request: android.webkit.WebResourceRequest) = request.isForMainFrame
+            // Keep the player page in place: links inside an embed must not navigate away.
+            // A site's own page (fallback mode) may redirect within the web, never to apps.
+            override fun shouldOverrideUrlLoading(view: WebView, request: android.webkit.WebResourceRequest): Boolean =
+                if (pageMode) request.url.scheme !in setOf("http", "https") else request.isForMainFrame
+
+            override fun onPageFinished(view: WebView, url: String?) {
+                if (pageMode && token >= 0 && url != null && url.startsWith("http")) {
+                    safely { view.evaluateJavascript(PlayerPages.pageScript(token), null) }
+                }
+            }
 
             // The renderer crashed or was killed (e.g. a frozen page elsewhere in the app):
             // swap in a fresh WebView and skip the current video instead of crashing the app.
@@ -75,8 +92,24 @@ class EmbedPlayer(private val context: Context, private val host: ViewGroup, pri
         @JavascriptInterface fun muted(t: Int) = post(t) { events.onEmbedMuted(t) }
     }
 
+    /** Fallback 1: the video in a bare Chrome player that presents itself as the video's page. */
+    fun playWeb(v: Video, t: Int) {
+        token = t
+        pageMode = false
+        val base = v.pageUrl.takeIf { it.startsWith("http") } ?: v.src
+        safely { web.loadDataWithBaseURL(base, PlayerPages.webPlayer(v.src, v.kind == "hls", t), "text/html", "utf-8", null) }
+    }
+
+    /** Fallback 2: the video's own page, with its biggest video started and enlarged. */
+    fun playPage(v: Video, t: Int) {
+        token = t
+        pageMode = true
+        safely { web.loadUrl(v.pageUrl.ifEmpty { v.src }) }
+    }
+
     fun play(v: Video, t: Int) {
         token = t
+        pageMode = false
         val id = JSONObject.quote(v.id ?: "")
         val body = when (v.provider) {
             "vimeo" -> """
@@ -117,6 +150,7 @@ function cmd(c){ if(!player) return;
 
     fun stop() {
         token = -1
+        pageMode = false
         safely { web.loadUrl("about:blank") }
     }
 

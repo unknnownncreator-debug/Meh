@@ -8,9 +8,12 @@
     "start": "node server.js",
     "postinstall": "playwright install chromium",
     "test": "node test/e2e.js",
-    "stress": "node --expose-gc test/stress.js"
+    "stress": "node --expose-gc test/stress.js",
+    "test:players": "cd android && ./gradlew -q testDebugUnitTest && cd .. && node test/player-pages.js"
   },
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "hls.js": "^1.6.0",
     "playwright": "1.63.0"
