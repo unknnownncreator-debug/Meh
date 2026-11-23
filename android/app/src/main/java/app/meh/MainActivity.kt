@@ -28,6 +28,7 @@ import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.annotation.OptIn
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -79,6 +80,10 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
     private lateinit var autoplay: CheckBox
     private lateinit var skipWatched: CheckBox
     private lateinit var redgifs: CheckBox
+    private lateinit var minLength: android.widget.SeekBar
+    private lateinit var minLengthLabel: TextView
+    /** The slider's minimum video length, in seconds (0 = any). */
+    private var minSeconds = 0
     private lateinit var status: TextView
     private lateinit var statusDot: ImageView
     private lateinit var queue: LinearLayout
@@ -131,6 +136,20 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
         // RedGIFs is opt-in content (18+): searched only while this is on, hidden from the queue when off.
         redgifs.isChecked = prefs.getBoolean("redgifs", true)
         redgifs.setOnCheckedChangeListener { _, v -> prefs.edit().putBoolean("redgifs", v).apply(); renderQueue() }
+        // Minimum length: filters the queue right away; the playing video is never interrupted.
+        minLength.progress = prefs.getInt("minLengthIdx", 0).coerceIn(0, MinLength.STEPS.size - 1)
+        minSeconds = MinLength.seconds(minLength.progress)
+        minLengthLabel.text = MinLength.label(minLength.progress)
+        minLength.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(bar: android.widget.SeekBar, i: Int, fromUser: Boolean) {
+                minSeconds = MinLength.seconds(i)
+                minLengthLabel.text = MinLength.label(i)
+                prefs.edit().putInt("minLengthIdx", i).apply()
+                scheduleRender()
+            }
+            override fun onStartTrackingTouch(bar: android.widget.SeekBar) {}
+            override fun onStopTrackingTouch(bar: android.widget.SeekBar) { maybeLoadMore() }
+        })
 
         try {
             web = WebInspector(this, findViewById(R.id.inspectorHost))
@@ -156,6 +175,7 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
             }
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) advanceAfterEnd()
+                if (state == Player.STATE_READY && exo.duration != C.TIME_UNSET) checkLength(exo.duration / 1000.0)
             }
             override fun onPlayerError(error: PlaybackException) {
                 val http = (error.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
@@ -198,6 +218,7 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
         nowTitle = findViewById(R.id.nowTitle); nowSource = findViewById(R.id.nowSource); nowKind = findViewById(R.id.nowKind)
         nowScore = findViewById(R.id.nowScore); nowDesc = findViewById(R.id.nowDesc); unmute = findViewById(R.id.unmute)
         autoplay = findViewById(R.id.autoplay); skipWatched = findViewById(R.id.skipWatched); redgifs = findViewById(R.id.redgifs)
+        minLength = findViewById(R.id.minLength); minLengthLabel = findViewById(R.id.minLengthLabel)
         status = findViewById(R.id.status); statusDot = findViewById(R.id.statusDot)
         queue = findViewById(R.id.queue); queueCount = findViewById(R.id.queueCount)
     }
@@ -304,7 +325,7 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
 
     /** Ranked queue: best matches first, sites spread out, watched videos last or hidden. */
     private fun upcoming(): List<Video> {
-        val pool = items.values.filter { it.key != current && it.key !in played && it.key !in failed && (redgifs.isChecked || !isRedgifs(it.pageUrl.ifEmpty { it.src })) }
+        val pool = items.values.filter { it.key != current && it.key !in played && it.key !in failed && (redgifs.isChecked || !isRedgifs(it.pageUrl.ifEmpty { it.src })) && MinLength.allows(it.duration, minSeconds) }
         val fresh = pool.filter { it.key !in watched }
         val old = if (skipWatched.isChecked) emptyList() else pool.filter { it.key in watched }
         return Ranker.order(fresh) + Ranker.order(old)
@@ -461,6 +482,20 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
         setOverlay("Couldn't play “$name”: $why. Skipping…", busy = true)
         setStatus("Skipped “$name” (${v?.site ?: "?"}): $why · $skippedCount skipped so far", done = !loading)
         ui.postDelayed({ if (t == token) playNext() }, 1800)
+    }
+
+    override fun onEmbedDuration(token: Int, seconds: Double) { if (token == this.token) checkLength(seconds) }
+
+    /** Once a video's real length is known: too short for the slider → skip it (no fallbacks). */
+    private fun checkLength(seconds: Double) {
+        val key = current ?: return
+        val v = items[key] ?: return
+        if (seconds > 0 && seconds.isFinite() && !MinLength.allows(seconds, minSeconds)) {
+            items[key] = v.copy(duration = seconds).also { it.score = v.score }
+            ui.removeCallbacks(watchdog)
+            stopPlayback()
+            skip(key, v, MinLength.reason(minSeconds))
+        }
     }
 
     override fun onEmbedStarted(token: Int) { if (token == this.token) started() }

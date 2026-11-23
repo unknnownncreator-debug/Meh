@@ -341,6 +341,18 @@ function readSse(url) {
     await page.waitForFunction(() => document.querySelector('#statusDot').classList.contains('done'), null, { timeout: 30000 });
     const queued = await page.$$eval('#queue li', (l) => l.length);
     assert.ok(queued >= 3, `queue shows ${queued}`);
+
+    // Minimum-length slider: hides shorter videos from the queue at once, and brings them back.
+    const titles = () => page.$$eval('#queue .qi-title', (l) => l.map((e) => e.textContent));
+    const before = await titles();
+    assert.ok(before.some((t) => /How volcanoes form/.test(t)), 'the 30 s video is queued');
+    await page.$eval('#minLength', (el) => { el.value = 6; el.dispatchEvent(new Event('input')); }); // 1 min
+    assert.equal(await page.textContent('#minLengthLabel'), 'At least 1 min');
+    const after = await titles();
+    assert.ok(!after.some((t) => /How volcanoes form/.test(t)), 'videos under 1 min hidden');
+    assert.ok(after.some((t) => /eruption/i.test(t)), 'longer videos stay');
+    await page.$eval('#minLength', (el) => { el.value = 0; el.dispatchEvent(new Event('input')); });
+    assert.equal((await titles()).length, before.length, 'all back at "Any length"');
     if (shots) await page.screenshot({ path: path.join(shots, 'playing.png') });
 
     // Jump to the end: autoplay should advance to the next video.

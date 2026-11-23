@@ -26,6 +26,7 @@ object PlayerPages {
 var T=$token, SRC=${jsString(src)}, HLS=$hls, v=document.getElementById('v'), started=false;
 v.addEventListener('playing', function(){ if(!started){ started=true; Meh.started(T); } });
 v.addEventListener('ended', function(){ Meh.ended(T); });
+v.addEventListener('loadedmetadata', function(){ if (isFinite(v.duration) && v.duration > 0) Meh.duration(T, v.duration); });
 v.addEventListener('error', function(){ Meh.failed(T, 'web player error ' + (v.error && v.error.code)); });
 function go(){ var p=v.play(); if(p && p.catch) p.catch(function(){ v.muted=true; Meh.muted(T); v.play().catch(function(){}); }); }
 if (HLS && !v.canPlayType('application/vnd.apple.mpegurl')) {
@@ -55,6 +56,7 @@ function cmd(c){ if(c=='toggle'){ v.paused ? v.play() : v.pause(); } if(c=='paus
     if (v.__meh) return; v.__meh = 1;
     v.addEventListener('playing', function(){ if(!started){ started = true; Meh.started(T); } });
     v.addEventListener('ended', function(){ if (v === best) Meh.ended(T); });
+    v.addEventListener('loadedmetadata', function(){ if (v === best && isFinite(v.duration) && v.duration > 0) Meh.duration(T, v.duration); });
   }
   function scan(){
     var vs = document.querySelectorAll('video');
@@ -65,6 +67,7 @@ function cmd(c){ if(c=='toggle'){ v.paused ? v.play() : v.pause(); } if(c=='paus
       for (var j = 0; j < vs.length; j++) { var r = vs[j].getBoundingClientRect(), a = r.width * r.height; if (a > area) { area = a; best = vs[j]; } }
     }
     if (!best) return;
+    if (!best.__mehDur && isFinite(best.duration) && best.duration > 0) { best.__mehDur = 1; Meh.duration(T, best.duration); }
     if (!best.__mehBig) {
       best.__mehBig = 1;
       best.style.cssText += ';position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;' +

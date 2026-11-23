@@ -37,6 +37,7 @@ const HLS_JS = path.join(__dirname, '..', 'android', 'app', 'src', 'main', 'asse
       window.Meh = {
         started: (t) => __events.push(['started', t]), ended: (t) => __events.push(['ended', t]),
         failed: (t, why) => __events.push(['failed', t, why]), muted: (t) => __events.push(['muted', t]),
+        duration: (t, s) => __events.push(['duration', t, s]),
       };
     });
     await page.goto(url);
@@ -51,7 +52,10 @@ const HLS_JS = path.join(__dirname, '..', 'android', 'app', 'src', 'main', 'asse
     await waitEvent(page, 'started');
     await page.evaluate(() => { const v = document.querySelector('video'); v.currentTime = v.duration - 0.3; });
     await waitEvent(page, 'ended');
-    assert.deepEqual((await page.evaluate(() => __events)).find((e) => e[0] === 'started'), ['started', 11]);
+    const ev = await page.evaluate(() => __events);
+    assert.deepEqual(ev.find((e) => e[0] === 'started'), ['started', 11]);
+    const d = ev.find((e) => e[0] === 'duration');
+    assert.ok(d && Math.round(d[2]) === 60, `reports the video's length for the minimum-length slider (${d && d[2]})`);
     await page.close();
   });
 
@@ -65,7 +69,7 @@ const HLS_JS = path.join(__dirname, '..', 'android', 'app', 'src', 'main', 'asse
     const page = await browser.newPage();
     await page.addInitScript(() => {
       window.__events = [];
-      window.Meh = { started: (t) => __events.push(['started', t]), ended: () => {}, failed: (t, w) => __events.push(['failed', t, w]), muted: () => {} };
+      window.Meh = { started: (t) => __events.push(['started', t]), ended: () => {}, failed: (t, w) => __events.push(['failed', t, w]), muted: () => {}, duration: () => {} };
       // Pretend this Chrome has no native HLS (like some phones' WebViews).
       const orig = HTMLMediaElement.prototype.canPlayType;
       HTMLMediaElement.prototype.canPlayType = function (t) { return /mpegurl/i.test(t) ? '' : orig.call(this, t); };
@@ -88,6 +92,7 @@ const HLS_JS = path.join(__dirname, '..', 'android', 'app', 'src', 'main', 'asse
     await waitEvent(page, 'started');
     const style = await page.evaluate(() => getComputedStyle(document.querySelector('video')).position);
     assert.equal(style, 'fixed', 'video enlarged to fill the screen');
+    await waitEvent(page, 'duration');
     await page.evaluate(() => { const v = document.querySelector('video'); v.currentTime = v.duration - 0.3; });
     await waitEvent(page, 'ended');
     await page.close();

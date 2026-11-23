@@ -26,6 +26,7 @@ class EmbedPlayer(private val context: Context, private val host: ViewGroup, pri
         fun onEmbedEnded(token: Int)
         fun onEmbedFailed(token: Int, why: String)
         fun onEmbedMuted(token: Int)
+        fun onEmbedDuration(token: Int, seconds: Double)
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -90,6 +91,7 @@ class EmbedPlayer(private val context: Context, private val host: ViewGroup, pri
         @JavascriptInterface fun ended(t: Int) = post(t) { events.onEmbedEnded(t) }
         @JavascriptInterface fun failed(t: Int, why: String) = post(t) { events.onEmbedFailed(t, why) }
         @JavascriptInterface fun muted(t: Int) = post(t) { events.onEmbedMuted(t) }
+        @JavascriptInterface fun duration(t: Int, seconds: Double) = post(t) { events.onEmbedDuration(t, seconds) }
     }
 
     /** Fallback 1: the video in a bare Chrome player that presents itself as the video's page. */
@@ -120,7 +122,7 @@ var tag=document.createElement('script'); tag.src='https://player.vimeo.com/api/
 tag.onload=function(){
   player=new Vimeo.Player('p',{id:Number($id),autoplay:true,width:640});
   player.ready().then(function(){ var f=document.querySelector('#p iframe'); if(f) f.style.cssText='position:absolute;inset:0;width:100%;height:100%;border:0'; });
-  player.on('play',function(){ Meh.started(T); });
+  player.on('play',function(){ Meh.started(T); player.getDuration().then(function(d){ Meh.duration(T, d); }).catch(function(){}); });
   player.on('ended',function(){ Meh.ended(T); });
   player.on('error',function(){ Meh.failed(T,'vimeo'); });
   player.play().catch(function(){ player.setMuted(true).then(function(){ Meh.muted(T); return player.play(); }).catch(function(){ Meh.failed(T,'vimeo blocked'); }); });

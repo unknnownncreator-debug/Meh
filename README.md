@@ -89,6 +89,7 @@ RedGIFs is mostly adult content, so it sits behind an **Include RedGIFs (18+)** 
 Other controls:
 - **Autoplay next.** Turn it off to stop after each video.
 - **Skip watched.** Videos you've already seen are skipped. They are remembered in your browser only.
+- **Minimum length** slider (Any, 5 s … 20 min). Hides shorter videos from the queue straight away, without a new search. A video whose length isn't known yet stays queued and is skipped once it loads if it's too short. The playing video is never interrupted. Remembered, on desktop and Android.
 - **Search in the address.** The search is in the URL (`/?q=...`), so you can bookmark it or reload the page.
 
 ## Settings (environment variables)

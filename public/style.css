@@ -100,6 +100,10 @@ a { color: inherit; }
 .controls button:hover { background: var(--surface-2); }
 #unmute { background: var(--accent); color: var(--accent-text); border-color: transparent; }
 .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); padding: 0 6px; cursor: pointer; }
+.minlen { gap: 10px; }
+.minlen span { min-width: 104px; }
+.minlen input[type=range] { width: 160px; accent-color: var(--accent); }
+@media (max-width: 520px) { .minlen input[type=range] { width: 120px; } }
 .desc { color: var(--muted); font-size: 14px; margin: 12px 0 0; white-space: pre-line; overflow-wrap: anywhere; max-height: 7.5em; overflow: hidden; }
 
 /* ---------- queue ---------- */

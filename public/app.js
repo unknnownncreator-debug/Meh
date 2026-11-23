@@ -6,7 +6,7 @@ const els = {
   form: $('search'), q: $('q'), stage: document.querySelector('.stage'),
   video: $('video'), embed: $('embed'), overlay: $('overlay'), overlayText: $('overlayText'),
   title: $('nowTitle'), source: $('nowSource'), kind: $('nowKind'), score: $('nowScore'), desc: $('nowDesc'),
-  prev: $('prev'), next: $('next'), unmute: $('unmute'), autoplay: $('autoplay'), skipWatched: $('skipWatched'), redgifs: $('redgifs'),
+  prev: $('prev'), next: $('next'), unmute: $('unmute'), autoplay: $('autoplay'), skipWatched: $('skipWatched'), redgifs: $('redgifs'), minLength: $('minLength'), minLengthLabel: $('minLengthLabel'),
   status: $('status'), dot: $('statusDot'), queue: $('queue'), queueCount: $('queueCount'),
 };
 
@@ -30,6 +30,23 @@ els.redgifs.checked = store.get('redgifs', true);
 els.redgifs.addEventListener('change', () => { store.set('redgifs', els.redgifs.checked); renderQueue(); });
 const isRedgifsItem = (it) => /(^|\.)redgifs\.com$/i.test(it.site || '');
 
+// Minimum length slider: uneven steps (seconds) so short settings are as easy to hit as long ones.
+const MIN_STEPS = [0, 5, 10, 15, 30, 45, 60, 90, 120, 180, 300, 600, 900, 1200];
+const shortLen = (s) => (s < 60 ? `${s} s` : s % 60 === 30 ? `${Math.floor(s / 60)}½ min` : `${s / 60} min`);
+let minSeconds = 0;
+function setMinLength(i) {
+  i = Math.max(0, Math.min(MIN_STEPS.length - 1, +i || 0));
+  minSeconds = MIN_STEPS[i];
+  els.minLength.value = i;
+  els.minLengthLabel.textContent = minSeconds ? `At least ${shortLen(minSeconds)}` : 'Any length';
+}
+setMinLength(store.get('minLengthIdx', 0));
+// Filters the queue right away; the playing video is never interrupted.
+els.minLength.addEventListener('input', () => { setMinLength(els.minLength.value); store.set('minLengthIdx', +els.minLength.value); renderQueue(); });
+els.minLength.addEventListener('change', () => maybeLoadMore());
+/** Unknown lengths pass (checked again once the video loads). */
+const longEnough = (d) => !minSeconds || !d || d >= minSeconds;
+
 // ---------------------------------------------------------------- state
 let S = null; // current search session
 
@@ -44,7 +61,7 @@ function newSession(q) {
 // Ranked queue: highest relevance first, gently spreading sites out so one domain
 // can't take over, watched videos last (or hidden).
 function upcoming() {
-  const pool = [...S.items.values()].filter((it) => it.key !== S.current && !S.played.has(it.key) && !S.failed.has(it.key) && (els.redgifs.checked || !isRedgifsItem(it)));
+  const pool = [...S.items.values()].filter((it) => it.key !== S.current && !S.played.has(it.key) && !S.failed.has(it.key) && (els.redgifs.checked || !isRedgifsItem(it)) && longEnough(it.duration));
   const fresh = pool.filter((it) => !watched.has(it.key));
   const old = els.skipWatched.checked ? [] : pool.filter((it) => watched.has(it.key));
   const order = (list) => {
@@ -217,6 +234,10 @@ function play(it) {
 function playFile(it, { started, ended, fail, my }) {
   const v = els.video;
   v.muted = store.get('muted', false);
+  // Too short for the slider? Skip it as soon as its real length is known.
+  v.onloadedmetadata = () => {
+    if (my === token && Number.isFinite(v.duration) && !longEnough(v.duration)) { it.duration = v.duration; fail(`shorter than your minimum length (${shortLen(minSeconds)})`); }
+  };
   v.onplaying = started;
   v.onended = ended;
   // MediaError codes: 2 network, 3 decode, 4 not supported / refused by the server.
