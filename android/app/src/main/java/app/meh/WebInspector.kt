@@ -66,7 +66,7 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
             val url = request.url.toString()
             // Never block the page being inspected itself, only what it loads (its URL may
             // legitimately contain words like "preroll" or "ads").
-            if (!request.isForMainFrame && isAdUrl(url)) return EMPTY()
+            if (!request.isForMainFrame && isAdUrl(url)) { Blocklist.blocked.incrementAndGet(); return EMPTY() }
             val s = session ?: return null
             val headers = request.requestHeaders.mapKeys { it.key.lowercase() }
             val kind = mediaKindFromUrl(url)

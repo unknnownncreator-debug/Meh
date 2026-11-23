@@ -115,7 +115,9 @@ function loadPage(page) {
     session.hasMore = !!(d && d.hasMore);
     const n = session.items.size;
     const sites = new Set([...session.items.values()].map((i) => i.site)).size;
-    setStatus(n ? `Found ${n} video${n === 1 ? '' : 's'} across ${sites} site${sites === 1 ? '' : 's'}` : 'No playable videos found', true);
+    session.adsBlocked = (session.adsBlocked || 0) + ((d && d.adsBlocked) || 0);
+    const ads = session.adsBlocked ? ` · ${session.adsBlocked} ad${session.adsBlocked === 1 ? '' : 's'} blocked` : '';
+    setStatus((n ? `Found ${n} video${n === 1 ? '' : 's'} across ${sites} site${sites === 1 ? '' : 's'}` : 'No playable videos found') + ads, true);
     if (!session.current) {
       if (n && upcoming().length) playNext();
       else if (session.hasMore && page < 3) loadPage(page + 1);

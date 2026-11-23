@@ -23,7 +23,8 @@ private val AD_PATTERNS = listOf(
     "adition\\.com", "videoadex", "ads-?video", "video-?ads?\\b", "[?&]ad_?type=",
 ).map { Regex(it, IC) }
 
-fun isAdUrl(url: String) = AD_PATTERNS.any { it.containsMatchIn(url) }
+/** Ad / tracker request: on the ad-server list (~43k domains), or matching a known ad pattern. */
+fun isAdUrl(url: String) = Blocklist.isListedUrl(url) || AD_PATTERNS.any { it.containsMatchIn(url) }
 
 private val SEGMENT_EXT = Regex("\\.(ts|m4s|aac|m4a|mp3|vtt|key)(\\?|#|$)", IC)
 fun isSegment(url: String) = SEGMENT_EXT.containsMatchIn(url.substringBefore('?'))

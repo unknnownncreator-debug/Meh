@@ -99,6 +99,7 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
     private var fullscreen = false
     private val watchdog = Runnable { failCurrent(SkipReason.TIMED_OUT) }
     private var skippedCount = 0
+    private var adsAtSearchStart = 0
     private val embedEnd = Runnable { onEmbedEnded(token) }
 
     private var webUnavailable = false
@@ -111,6 +112,7 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
         super.onCreate(savedInstanceState)
         CrashLog.install(this)
         setContentView(R.layout.activity_main)
+        scope.launch(Dispatchers.IO) { Blocklist.loadFromAssets(applicationContext) }
         bindViews()
 
         watched += (prefs.getString("watched", "") ?: "").split('\n').filter { it.isNotEmpty() }
@@ -240,6 +242,7 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
         engine.cancel()
         items.clear(); failed.clear(); played.clear(); history.clear()
         current = null; page = 0; hasMore = false; startPending = false; skippedCount = 0
+        adsAtSearchStart = Blocklist.blocked.get()
         clearNow()
         setOverlay("Searching the web for “$q”…", busy = true)
         loadPage(0)
@@ -275,7 +278,9 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
         this.hasMore = hasMore
         val n = items.size
         val sites = items.values.map { it.site }.toSet().size
-        setStatus(if (n > 0) "Found $n video${if (n == 1) "" else "s"} across $sites site${if (sites == 1) "" else "s"}" else "No playable videos found", done = true)
+        val ads = Blocklist.blocked.get() - adsAtSearchStart
+        val adText = if (ads > 0) " · $ads ad${if (ads == 1) "" else "s"} blocked" else ""
+        setStatus((if (n > 0) "Found $n video${if (n == 1) "" else "s"} across $sites site${if (sites == 1) "" else "s"}" else "No playable videos found") + adText, done = true)
         if (current == null && !startPending) {
             when {
                 upcoming().isNotEmpty() -> playNext()

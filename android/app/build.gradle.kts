@@ -11,8 +11,8 @@ android {
         applicationId = "app.meh"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.7"
+        versionCode = 9
+        versionName = "1.8"
     }
 
     // A fixed signing key kept in the repo so every build can install over the last one.
@@ -33,6 +33,11 @@ android {
         debug {
             signingConfig = signingConfigs.getByName("meh")
         }
+    }
+
+    // The ad blocker's domain list is shared with the desktop version (repo-level data/).
+    sourceSets {
+        getByName("main") { assets.srcDir("../../data") }
     }
 
     compileOptions {

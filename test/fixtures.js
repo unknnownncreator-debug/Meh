@@ -59,6 +59,8 @@ const PAGES = {
 
   // Nothing in the HTML: a script "player" loads an HLS stream after the page runs.
   '/js-player.html': `<!doctype html><html><head><title>Live volcano cam stream</title></head>
+    <script async src="https://securepubads.g.doubleclick.net/tag/js/gpt.js"></script>
+    <script async src="https://imasdk.googleapis.com/js/sdkloader/ima3.js"></script>
     <body><div id="player"></div><script>
       setTimeout(function () { fetch('/media/stream/index.m3u8').then(function (r) { return r.text(); }); }, 300);
     </script></body></html>`,

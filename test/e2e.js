@@ -62,6 +62,16 @@ function readSse(url) {
     assert.equal(embedFromUrl('https://example.com/watch?v=x'), null);
   });
 
+  await step('ad blocker: ~43k listed ad domains, subdomains included, no false positives', () => {
+    const adblock = require('../lib/adblock');
+    assert.ok(adblock.size() > 40000, `list has ${adblock.size()} domains`);
+    for (const h of ['securepubads.g.doubleclick.net', 'imasdk.googleapis.com', 'ib.adnxs.com', 'cdn.teads.tv', 'mssl.fwmrm.net', 'c.amazon-adsystem.com'])
+      assert.ok(adblock.isListedHost(h), h);
+    for (const h of ['www.cnn.com', 'player.vimeo.com', 'www.dailymotion.com', 's1.dmcdn.net', 'cdn.jwplayer.com', 'd1.cloudfront.net',
+      'vod-progressive.akamaized.net', 'www.googleapis.com', 'en.wikipedia.org', 'archive.org', 'www.nasa.gov'])
+      assert.ok(!adblock.isListedHost(h), h);
+  });
+
   await step('parses durations and spots ad URLs', () => {
     assert.equal(parseDuration('PT1H2M3S'), 3723);
     assert.equal(parseDuration('95'), 95);
@@ -207,6 +217,7 @@ function readSse(url) {
     items = events.filter((e) => e.event === 'item').map((e) => e.data);
     const done = events.find((e) => e.event === 'done');
     assert.ok(done, 'search finished');
+    assert.ok(done.data.adsBlocked >= 2, `ad blocker stopped the page's ad scripts (${done.data.adsBlocked})`);
     const byPage = Object.fromEntries(items.map((i) => [i.pageUrl.split('/').pop(), i]));
     console.log(`\n    ${items.length} videos from ${done.data.pagesTotal} pages in ${Date.now() - t0} ms`);
     for (const i of [...items].sort((a, b) => b.score - a.score)) console.log(`      ${String(i.score).padStart(5)}  ${i.kind.padEnd(5)} via ${i.via.padEnd(7)} ${i.title}`);

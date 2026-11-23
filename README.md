@@ -49,6 +49,8 @@ Then open **http://localhost:3000**, type something, and press Enter.
 
 ## Ads
 
+**Ad blocker.** Both versions block about 43,000 ad and tracking domains: EasyList's ad-server list plus the main video-ad networks (Google IMA/DoubleClick, FreeWheel, SpotX, Teads, …). The list is `data/adblock-domains.txt`; refresh it with `node tools/update-adblock.js`. It applies to everything the hidden browser loads and, on Android, to the Vimeo/Dailymotion players. Blocking the ad *scripts* means most players never load an ad at all and go straight to the real video. The status line shows how many ads were blocked per search. Hosts the app needs for real video (Vimeo, Dailymotion, JW Player, Brightcove, big CDNs) are never blocked. EasyList is dual-licensed GPLv3 / CC BY-SA 3.0.
+
 Players usually request their **pre-roll ad first** and the real video only after the ad. Without care, the app would take the ad for the video, play it, and move on. Several layers prevent that:
 
 1. **Keep watching.** While inspecting a page, the app blocks every video download it sees. That makes most players give up on the ad and load the real video, so the app keeps watching after the first request instead of stopping there. Later requests are preferred.

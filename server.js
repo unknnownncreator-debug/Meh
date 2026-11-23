@@ -10,6 +10,7 @@ const { inspectPage, browserFetch, shutdown } = require('./lib/inspector');
 const { scoreItem } = require('./lib/ranker');
 const { handleProxy, proxyUrl } = require('./lib/proxy');
 const { isBlockedVideo } = require('./lib/util');
+const { blockedCount } = require('./lib/adblock');
 
 const PORT = +process.env.PORT || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -59,6 +60,7 @@ async function handleSearch(req, res, query) {
   const heartbeat = setInterval(() => send('ping', {}), 15000);
 
   const stats = { engines: {}, pagesTotal: 0, pagesDone: 0, found: 0 };
+  const adsBefore = blockedCount();
   const status = (message) => send('status', { message, ...stats });
   const seenMedia = new Set();
 
@@ -111,6 +113,7 @@ async function handleSearch(req, res, query) {
       }
     };
     await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+    stats.adsBlocked = blockedCount() - adsBefore;
     send('done', { ...stats, page, hasMore: !TEST_PAGES && hits.length > 0 && page < 10 });
   } catch (e) {
     send('fail', { message: String(e && e.message || e) });

@@ -37,6 +37,15 @@ class EmbedPlayer(private val context: Context, private val host: ViewGroup, pri
         setBackgroundColor(0xFF000000.toInt())
         webChromeClient = WebChromeClient()
         webViewClient = object : WebViewClient() {
+            // Ad blocker for the embedded players (Dailymotion in particular runs ads).
+            // Background thread: never touch the WebView here, never let an error escape.
+            override fun shouldInterceptRequest(view: WebView, request: android.webkit.WebResourceRequest): android.webkit.WebResourceResponse? = try {
+                if (!request.isForMainFrame && isAdUrl(request.url.toString())) {
+                    Blocklist.blocked.incrementAndGet()
+                    android.webkit.WebResourceResponse("text/plain", "utf-8", java.io.ByteArrayInputStream(ByteArray(0)))
+                } else null
+            } catch (e: Throwable) { null }
+
             // Keep the player page in place: links inside the embed must not navigate away.
             override fun shouldOverrideUrlLoading(view: WebView, request: android.webkit.WebResourceRequest) = request.isForMainFrame
 
