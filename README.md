@@ -34,7 +34,7 @@ Then open **http://localhost:3000**, type something, and press Enter.
  your words ─► 1. SEARCH ─► 2. INSPECT ─► 3. RANK ─► 4. PLAY
 ```
 
-1. **Search** (`lib/search.js`). Reads the public result pages of DuckDuckGo, Bing, Bing Videos and YouTube in parallel, the same pages you see in a browser. Their links are merged round-robin so no single engine or site dominates. If a plain request is blocked, that search page is loaded in the headless browser instead.
+1. **Search** (`lib/search.js`). Reads the public result pages of Google (Videos tab), YouTube, Bing, Bing Videos and DuckDuckGo in parallel, the same pages you see in a browser. Google only answers browsers that run JavaScript, so its searches always go through the headless browser. Their links are merged round-robin so no single engine or site dominates. If a plain request is blocked, that search page is loaded in the headless browser instead.
 2. **Inspect** (`lib/inspector.js`). Each result page (up to 40, five at a time) is examined in two stages:
    - **Static HTML.** Reads what the page declares: `og:video` and Twitter player tags, JSON-LD `VideoObject` data, `<video>` and `<source>` tags, and embedded YouTube, Vimeo or Dailymotion players. This is fast and needs no browser.
    - **Live browser.** If nothing was declared, the page is opened in headless Chromium. The browser scrolls, presses play, and watches the network for video files (`.mp4`, `.webm`) and HLS streams (`.m3u8`). It then reads the live DOM of every frame. This catches players that load their video with JavaScript.

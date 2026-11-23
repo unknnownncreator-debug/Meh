@@ -134,6 +134,45 @@ function readSse(url) {
     }
   });
 
+  await step('parses Google video results (modern + legacy markup, bot check, browser retry)', async () => {
+    const { parseGoogle } = require('../lib/search');
+    const modern = `<html><body>
+      <a href="https://www.google.com/search?q=volcano&tbm=isch">Images</a>
+      <a href="https://accounts.google.com/ServiceLogin">Sign in</a>
+      <a href="/search?q=volcano+lava&tbm=vid">volcano lava</a>
+      <a href="https://support.google.com/websearch">Help with search results</a>
+      <div class="g"><a href="https://www.youtube.com/watch?v=abcdefghijk" jsname="UWckNb" data-ved="x"><h3 class="LC20lb">Volcano eruption in 4K</h3><cite>www.youtube.com</cite></a><span>12:34</span></div>
+      <div class="g"><a href="https://www.nationalgeographic.com/video/volcano-101" data-ved="y"><div role="heading" aria-level="3">Volcanoes 101 &amp; how they erupt</div><div>Nat Geo · 3:05</div></a></div>
+      <div class="g"><a href="https://vimeo.com/76979871" aria-label="Lava flow timelapse, from Vimeo"><img src="x.jpg"></a></div>
+      <div class="g"><a href="https://www.youtube.com/watch?v=abcdefghijk"><h3>Volcano eruption in 4K</h3></a></div>
+    </body></html>`;
+    const hits = parseGoogle(modern);
+    assert.deepEqual(hits.map((h) => h.url), ['https://www.youtube.com/watch?v=abcdefghijk', 'https://www.nationalgeographic.com/video/volcano-101', 'https://vimeo.com/76979871']);
+    assert.deepEqual(hits.map((h) => h.title), ['Volcano eruption in 4K', 'Volcanoes 101 & how they erupt', 'Lava flow timelapse, from Vimeo']);
+    assert.equal(hits[1].duration, 185);
+
+    const legacy = '<div><a href="/url?q=https://www.bbc.co.uk/news/av/volcano&amp;sa=U&amp;ved=2ah"><h3><div>Volcano erupts in Iceland - BBC News</div></h3></a>' +
+      '<a href="/url?q=https://maps.google.com/x&amp;sa=U"><h3>Maps result</h3></a></div>';
+    assert.deepEqual(parseGoogle(legacy).map((h) => h.url), ['https://www.bbc.co.uk/news/av/volcano']);
+
+    const zlib = require('zlib');
+    const sorry = zlib.gunzipSync(fs.readFileSync(path.join(__dirname, 'fixtures', 'real', 'google-sorry.html.gz'))).toString('utf8');
+    assert.equal(parseGoogle(sorry).length, 0, 'real Google bot-check page');
+    assert.equal(parseGoogle('<html><form id="captcha-form"></form><a href="https://x.com/v"><h3>Something long enough</h3></a></html>').length, 0);
+
+    // Plain request gets the "enable JavaScript" page → must retry in the browser.
+    const realFetch = global.fetch;
+    global.fetch = async () => new Response('<html><noscript>Please click <a href="/search?q=v&emsg=SG_REL">here</a> if you are not redirected. enablejs</noscript>' + 'x'.repeat(3000) + '</html>', { status: 200, headers: { 'content-type': 'text/html' } });
+    try {
+      let calls = 0;
+      const got = await ENGINES.google('volcano', 0, async (url) => { calls++; assert.match(url, /google\.com\/search\?q=volcano&tbm=vid/); return modern; });
+      assert.equal(calls, 1, 'retried in the browser');
+      assert.equal(got.length, 3);
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+
   await step('rewrites HLS playlists through the proxy', () => {
     const out = rewritePlaylist('#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"\nseg0.ts\nhttps://cdn.x/seg1.ts', 'https://h.com/v/index.m3u8', 'https://h.com/page');
     assert.match(out, /URI="\/proxy\?u=https%3A%2F%2Fh\.com%2Fv%2Fkey\.bin&r=/);

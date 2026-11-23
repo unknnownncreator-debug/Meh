@@ -75,7 +75,15 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
     private val all = mutableListOf<WebView>()
 
     init {
-        CookieManager.getInstance().setAcceptCookie(true)
+        CookieManager.getInstance().apply {
+            setAcceptCookie(true)
+            // Pre-accept Google/YouTube cookie consent so EU users don't land on a consent wall.
+            for (site in listOf("https://www.google.com", "https://www.youtube.com")) {
+                val domain = if ("google" in site) ".google.com" else ".youtube.com"
+                setCookie(site, "SOCS=CAI; Domain=$domain; Path=/")
+                setCookie(site, "CONSENT=YES+1; Domain=$domain; Path=/")
+            }
+        }
         repeat(size) { pool.trySend(create()) }
     }
 

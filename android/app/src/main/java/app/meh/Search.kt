@@ -101,10 +101,18 @@ class Search(private val plain: (String) -> String, private val browser: ((Strin
         }
     }
 
+    /**
+     * Google's Videos tab: video pages from all over the web. Google only serves results
+     * to browsers that run JavaScript, so the plain request parses to nothing and
+     * [fetchHits] retries in the WebView.
+     */
+    fun google(query: String, page: Int): List<Hit> =
+        fetchHits("https://www.google.com/search?q=${enc(query)}&tbm=vid&hl=en&num=20" + if (page > 0) "&start=${page * 20}" else "", ::parseGoogle)
+
     /** Run every engine in parallel and merge round-robin so no engine dominates. */
     fun searchWeb(query: String, page: Int, onEngine: (String, Int) -> Unit = { _, _ -> }): List<Hit> {
         val engines: List<Pair<String, (String, Int) -> List<Hit>>> = listOf(
-            "YouTube" to ::youtube, "Bing Videos" to ::bingVideos, "DuckDuckGo" to ::duckduckgo, "Bing" to ::bing,
+            "YouTube" to ::youtube, "Google" to ::google, "Bing Videos" to ::bingVideos, "DuckDuckGo" to ::duckduckgo, "Bing" to ::bing,
         )
         val results = arrayOfNulls<List<Hit>>(engines.size)
         val threads = engines.mapIndexed { i, (name, fn) ->
@@ -128,6 +136,36 @@ class Search(private val plain: (String) -> String, private val browser: ((Strin
     }
 
     companion object {
+        private val GOOGLE_OWN = Regex("(^|\\.)(google\\.[a-z.]+|gstatic\\.com|googleusercontent\\.com|googleadservices\\.com|googlesyndication\\.com|doubleclick\\.net)$", RegexOption.IGNORE_CASE)
+        private val ANCHOR = Regex("<a\\b([^>]{0,3000})>([\\s\\S]{0,6000}?)</a>", RegexOption.IGNORE_CASE)
+
+        /** Read Google results by page structure (links leaving Google that carry a heading or label), not class names. */
+        fun parseGoogle(html: String): List<Hit> {
+            if (Regex("/sorry/index|unusual traffic from your computer|id=\"captcha-form\"", RegexOption.IGNORE_CASE).containsMatchIn(html)) return emptyList()
+            val hits = mutableListOf<Hit>()
+            val seen = HashSet<String>()
+            for (m in ANCHOR.findAll(html)) {
+                if (hits.size >= 40) break
+                var href = Regex("\\bhref\\s*=\\s*\"([^\"]+)\"", RegexOption.IGNORE_CASE).find(m.groupValues[1])?.groupValues?.get(1)?.let(::decodeEntities) ?: continue
+                if (href.startsWith("/url?")) href = "https://www.google.com$href"
+                if (!href.startsWith("http://") && !href.startsWith("https://")) continue
+                val host = try { URI(href).host ?: continue } catch (e: Exception) { continue }
+                val target = (if (GOOGLE_OWN.containsMatchIn(host) && "/url?" !in href) null else cleanHitUrl(href)) ?: continue
+                if (target in seen) continue
+                val inner = m.groupValues[2]
+                val heading = Regex("<h3\\b[^>]*>([\\s\\S]*?)</h3>", RegexOption.IGNORE_CASE).find(inner)?.groupValues?.get(1)
+                    ?: Regex("role=\"heading\"[^>]*>([\\s\\S]{0,600}?)</div>", RegexOption.IGNORE_CASE).find(inner)?.groupValues?.get(1)
+                val aria = Regex("\\baria-label\\s*=\\s*\"([^\"]{5,300})\"", RegexOption.IGNORE_CASE).find(m.groupValues[1])?.groupValues?.get(1)
+                var title = heading?.let(::stripTags) ?: aria?.let(::decodeEntities) ?: ""
+                if (title.isEmpty()) stripTags(inner).let { if (it.length in 12..200) title = it }
+                if (title.length < 5) continue
+                val dur = Regex("\\b(\\d{1,2}:\\d{2}(?::\\d{2})?)\\b").find(stripTags(inner))?.groupValues?.get(1)
+                seen += target
+                hits += Hit(target, title, "", parseDuration(dur))
+            }
+            return hits
+        }
+
         private val ENGINE_DOMAINS = Regex("(^|\\.)(duckduckgo\\.com|bing\\.com|bing\\.net|microsoft\\.com|live\\.com|google\\.[a-z.]+|gstatic\\.com|googleapis\\.com|w3\\.org|schema\\.org|ytimg\\.com)$", RegexOption.IGNORE_CASE)
         private val JUNK_PATH = Regex("\\.(js|css|png|jpe?g|gif|svg|ico|webp|woff2?|pdf|xml|json)$", RegexOption.IGNORE_CASE)
 
@@ -139,6 +177,10 @@ class Search(private val plain: (String) -> String, private val browser: ((Strin
             val host = u.host ?: return null
             val q = queryParams(u.rawQuery)
             if (host.endsWith("duckduckgo.com") && u.path == "/l/") return q["uddg"]?.let { cleanHitUrl(it) }
+            // Google redirect: google.<tld>/url?q=<target> (or &url=)
+            if (Regex("(^|\\.)google\\.[a-z.]+$").containsMatchIn(host) && u.path == "/url") {
+                return (q["q"] ?: q["url"])?.takeIf { it.startsWith("http") }?.let { cleanHitUrl(it) }
+            }
             if (host.endsWith("bing.com") && u.path.startsWith("/ck/")) {
                 val e = q["u"] ?: return null
                 if (!e.startsWith("a1")) return null
