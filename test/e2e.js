@@ -232,11 +232,11 @@ function readSse(url) {
     assert.equal(byPage['embed.html'].provider, 'vimeo', 'embedded Vimeo iframe');
     // Pre-roll ads must never stand in for the real video.
     assert.match(byPage['preroll-player.html'].src, /\/f1\.mp4$/, 'player loads ad then video → the video');
-    assert.ok(!byPage['preroll-only.html'], 'page whose only video is a 25 s ad yields nothing');
+    assert.match(byPage['preroll-only.html'].src, /\/s2\.mp4$/, 'short clips are allowed now (no 45 s rule): a page\'s only clip is used');
     assert.match(byPage['ima-container.html'].src, /\/f3\.mp4$/, 'video in an ad container is skipped for the real one');
     assert.match(byPage['declared-long.html'].src, /\/f4\.mp4$/, 'page declares 5 min → its 60 s clip is rejected');
     assert.match(byPage['moov-at-end.html'].src, /\/n5\.mp4$/, 'unknown length is not rejected');
-    assert.ok(!items.some((i) => /\/(s\d|m4)\.mp4$/.test(i.src)), 'no ad clip anywhere');
+    assert.ok(!items.some((i) => /\/(s1|s3|m4)\.mp4$/.test(i.src)), 'no ad clip where the real video was available');
     assert.ok(!byPage['youtube-only.html'], 'YouTube-only page yields nothing');
     assert.ok(!byPage['tiktok-only.html'], 'TikTok-only page yields nothing');
     assert.match(byPage['mixed.html'].src, /report\.webm$/, 'article plays its own video, not the YouTube embed');
@@ -300,13 +300,11 @@ function readSse(url) {
     await page.keyboard.press('p');
     await page.waitForFunction((t) => document.querySelector('#nowTitle').textContent === t, second, { timeout: 10000 });
 
-    // Play-time ad check: a found video that turns out to be 25 s long is skipped, not played.
+    // Short clips play (no 45 s rule): a 25 s clip whose length is only known once loaded.
     process.env.MEH_TEST_PAGES = `${F}/short-unknown.html`;
-    await page.fill('#q', 'volcano teaser');
+    await page.fill('#q', 'volcano teaser short clip');
     await page.press('#q', 'Enter');
-    await page.waitForFunction(() => /everything found|watched everything/i.test(document.querySelector('#overlayText').textContent), null, { timeout: 30000 });
-    const played = await page.evaluate(() => document.querySelector('#video').currentTime);
-    assert.ok(played < 1, `ad-length video played for ${played}s`);
+    await page.waitForFunction(() => { const v = document.querySelector('#video'); return !v.hidden && v.currentTime > 1.5; }, null, { timeout: 30000 });
     process.env.MEH_TEST_PAGES = pages.join(',');
 
     // Phone width: no horizontal scroll.

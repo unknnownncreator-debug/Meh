@@ -106,11 +106,16 @@ class EngineTest {
         assertTrue(!Video("file", "https://notiktok.com.example.org/v.mp4").blocked)
     }
 
-    @Test fun ignoresAdsAndShortClips() {
+    @Test fun ignoresAdsAndBlankClips() {
         assertTrue(inspect("""<html><body><video src="/ads/preroll.mp4"></video></body></html>""").isEmpty())
         assertTrue(inspect("""<html><body><p>just text</p></body></html>""").isEmpty())
-        val ld = """<script type="application/ld+json">{"@type":"VideoObject","name":"teaser","duration":"PT8S","contentUrl":"/t.mp4"}</script>"""
+        // Only near-empty clips are rejected by length now (no 20/45 s rules).
+        val ld = """<script type="application/ld+json">{"@type":"VideoObject","name":"blank","duration":"PT3S","contentUrl":"/t.mp4"}</script>"""
         assertTrue(inspect("<html><head>$ld</head></html>").isEmpty())
+        assertEquals(1, inspect("<html><head>${ld.replace("PT3S", "PT8S")}</head></html>").size)
+        // A <video> inside an ad slot in the plain HTML is an ad; one after the slot closes isn't.
+        assertTrue(inspect("""<div class="ima-ad-container"><div><video width="640" height="360" src="/s3.mp4"></video></div></div>""").isEmpty())
+        assertEquals("https://site.com/real.mp4", inspect("""<div class="ad-slot"><img src="x"></div><div class="player"><video src="/real.mp4"></video></div>""").single().src)
     }
 
     @Test fun parsesLiveDomProbe() {

@@ -3,7 +3,6 @@ package app.meh
 /** Turns playback failures into a plain-language reason, and decides whether a fresh link could help. */
 object SkipReason {
     const val TIMED_OUT = "it never started (timed out)"
-    const val TOO_SHORT = "under 45 seconds, probably an ad"
 
     /** [code] is a Media3 PlaybackException error code; [http] the server's status, if it answered with one. */
     fun describe(code: Int, http: Int? = null): String = when {

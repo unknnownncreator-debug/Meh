@@ -54,10 +54,9 @@ Then open **http://localhost:3000**, type something, and press Enter.
 Players usually request their **pre-roll ad first** and the real video only after the ad. Without care, the app would take the ad for the video, play it, and move on. Several layers prevent that:
 
 1. **Keep watching.** While inspecting a page, the app blocks every video download it sees. That makes most players give up on the ad and load the real video, so the app keeps watching after the first request instead of stopping there. Later requests are preferred.
-2. **Ad containers.** Videos inside ad slots on the page (IMA, VAST/VPAID, `ad-container`, `preroll`, `advert`, …) are rejected, and so are frames served from ad networks.
-3. **Real length.** The app reads each video's actual length from the start of the file (MP4 `mvhd` header, WebM `Duration`, or the HLS segment list) without downloading it (`lib/media.js`, `MediaProbe.kt`). Videos found in a page or on the network must be **at least 45 seconds**; the site's own declared video (JSON-LD / `og:video`) is trusted down to 20 seconds. If the page says its video is, say, 5 minutes long, a clip shorter than half that is rejected.
-4. **At play time.** If a found video's length couldn't be read up front and it turns out to be under 45 seconds once it loads, it's skipped instead of played.
-5. **Known ad servers** are blocked outright. The page being inspected is never blocked itself, even if its address contains words like "preroll".
+2. **Ad containers.** Videos inside ad slots on the page (IMA, VAST/VPAID, `ad-container`, `preroll`, `advert`, …) are rejected, both in the live page and in the plain HTML, and so are frames served from ad networks.
+3. **The page's own length.** The app reads each video's actual length from the start of the file (MP4 `mvhd` header, WebM `Duration`, or the HLS segment list) without downloading it (`lib/media.js`, `MediaProbe.kt`). If the page says its video is, say, 5 minutes long, a clip shorter than half that is rejected. There is no general length limit any more, so short clips play; only near-empty clips under 5 seconds are skipped.
+4. **Known ad servers** are blocked outright. The page being inspected is never blocked itself, even if its address contains words like "preroll".
 
 ## Excluded sites
 

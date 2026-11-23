@@ -70,8 +70,11 @@ class AdTest {
         assertEquals("https://cdn.example/feature.mp4", v.single().src)
     }
 
-    @Test fun onlyTheAdWasRequested_yieldsNothing() {
-        assertTrue(pick(listOf(net("ad.mp4", 1))).isEmpty())
+    @Test fun shortClipsAreAllowed_onlyBlankOnesAreNot() {
+        // No 45 s rule any more: a page's only (short) clip is used…
+        assertEquals("https://cdn.example/ad.mp4", pick(listOf(net("ad.mp4", 1))).single().src)
+        // …but a 3 s placeholder / decoration is still skipped.
+        assertTrue(pick(listOf(net("tiny.mp4", 1).copy(duration = 3.0))).isEmpty())
     }
 
     @Test fun videoInsideAnAdContainer_isSkipped() {
@@ -92,12 +95,12 @@ class AdTest {
         assertTrue(declared.duration == 300.0)
     }
 
-    @Test fun unknownLengthIsNotRejected_andDeclaredShortIsTrusted() {
+    @Test fun unknownAndShortLengthsAreAccepted() {
         assertEquals("https://cdn.example/unknown.mp4", pick(listOf(net("unknown.mp4", 1))).single().src)
         // A site's own JSON-LD saying 30 s is trusted (20 s floor), unlike a sniffed 30 s clip.
         val ld = Candidate("file", "https://cdn.example/clip30.mp4", "jsonld", "", title = "Clip", duration = 30.0)
         assertEquals(1, pick(listOf(ld)).size)
-        assertTrue(pick(listOf(net("clip30.mp4", 1).copy(duration = 30.0))).isEmpty())
+        assertEquals(1, pick(listOf(net("clip30.mp4", 1).copy(duration = 30.0))).size)
     }
 
     @Test fun moreAdServersRecognised_withoutFalsePositives() {

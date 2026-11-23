@@ -53,13 +53,13 @@ data class Candidate(
  * picks the best one. The live-browser part is in [WebInspector].
  */
 object Inspector {
-    // Shortest video we accept (seconds). Sites' own declarations (JSON-LD / og:video) are
-    // trusted down to 20 s; anything found in the page body or sniffed from the network must
-    // be at least 45 s, because pre-roll ads are typically 6–30 s.
-    const val MIN_DURATION = 20.0
-    const val MIN_FOUND_DURATION = 45.0
+    // Shortest video we accept (seconds): only skips blank placeholders and one-frame
+    // decorations. Ads are handled by the ad blocker, ad-container detection, request order
+    // and the page's own declared length — not by a length floor, so short real clips play.
+    const val MIN_DURATION = 5.0
 
-    fun minDuration(c: Candidate) = if (c.origin == "jsonld" || c.origin == "og" || c.origin == "page") MIN_DURATION else MIN_FOUND_DURATION
+    @Suppress("UNUSED_PARAMETER")
+    fun minDuration(c: Candidate) = MIN_DURATION
 
     private val IC = RegexOption.IGNORE_CASE
 
@@ -69,7 +69,28 @@ object Inspector {
         return decodeEntities(g[2].ifEmpty { g[3] }.ifEmpty { g[4] })
     }
 
-    private class Tag(val tag: String, val attrs: String, val inner: String)
+    private class Tag(val tag: String, val attrs: String, val inner: String, val index: Int)
+
+    // Elements whose class/id marks them as an ad slot (same idea as the live-page check).
+    private val AD_BOX_ATTR = Regex("\\b(?:class|id)\\s*=\\s*[\"'][^\"']*(?:ad-container|ima-|preroll|advert|ad-slot|adslot|ad-player|adplayer|\\bvast\\b|vpaid|sponsor)[^\"']*[\"']|\\bdata-ad(?:-slot)?\\b|\\bid\\s*=\\s*[\"']google_ads", IC)
+    private val BOX_OPEN = Regex("<(div|section|aside|figure|span|ins)\\b([^>]{0,800})>")
+
+    /** Is [idx] (a <video> tag) inside a still-open ad-slot element? */
+    private fun insideAdBox(lower: String, idx: Int): Boolean {
+        val before = lower.substring(maxOf(0, idx - 4000), idx)
+        var lastTag: String? = null
+        var lastAt = 0
+        for (m in BOX_OPEN.findAll(before)) if (AD_BOX_ATTR.containsMatchIn(m.groupValues[2])) { lastTag = m.groupValues[1]; lastAt = m.range.last + 1 }
+        val tag = lastTag ?: return false
+        // Walk the same-name tags after it in order: once the ad element's own close tag is
+        // reached (nesting depth back to 0), the video is outside it.
+        var depth = 1
+        for (m in Regex("<(/?)$tag\\b").findAll(before.substring(lastAt))) {
+            depth += if (m.groupValues[1].isNotEmpty()) -1 else 1
+            if (depth == 0) return false
+        }
+        return true
+    }
 
     /**
      * Linear-time tag scanner. Regexes like <video[^>]*>([\s\S]*?)</video> go quadratic on
@@ -89,7 +110,7 @@ object Inspector {
                 if (close != -1 && close < from) close = lower.indexOf(closeTag, from)
                 if (close >= 0 && close - from <= maxInner) inner = html.substring(from, close)
             }
-            out += Tag(m.value, m.groupValues[1], inner)
+            out += Tag(m.value, m.groupValues[1], inner, m.range.first)
             m = m.next()
         }
         return out
@@ -144,7 +165,7 @@ object Inspector {
             val sources = scanTags(t.inner, t.inner.lowercase(), "source").mapNotNull { s ->
                 absolute(attr(s.tag, "src"), baseUrl)?.let { it to (attr(s.tag, "type") ?: "") }
             }
-            ProbeVideo(absolute(attr(t.attrs, "src"), baseUrl), sources, absolute(attr(t.attrs, "poster"), baseUrl), null, px(attr(t.attrs, "width")), px(attr(t.attrs, "height")))
+            ProbeVideo(absolute(attr(t.attrs, "src"), baseUrl), sources, absolute(attr(t.attrs, "poster"), baseUrl), null, px(attr(t.attrs, "width")), px(attr(t.attrs, "height")), insideAdBox(lower, t.index))
         }
         val iframes = scanTags(html, lower, "iframe", 0, 300).mapNotNull { absolute(attr(it.tag, "src") ?: attr(it.tag, "data-src"), baseUrl) }
         val bodyAt = lower.indexOf("<body")
