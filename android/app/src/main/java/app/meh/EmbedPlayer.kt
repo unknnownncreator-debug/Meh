@@ -44,7 +44,7 @@ class EmbedPlayer(private val context: Context, private val host: ViewGroup, pri
             // swap in a fresh WebView and skip the current video instead of crashing the app.
             override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
                 main.post {
-                    if (view !== web) return@post
+                    if (view !== web || destroyed) return@post
                     host.removeView(view)
                     try { view.destroy() } catch (e: Throwable) {}
                     web = makeWeb()
@@ -97,17 +97,22 @@ function cmd(c){ if(!player) return;
         val html = """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>html,body{margin:0;height:100%;background:#000;overflow:hidden}#p,#p iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
 </head><body>$body</body></html>"""
-        web.loadDataWithBaseURL("https://meh.app/", html, "text/html", "utf-8", null)
+        safely { web.loadDataWithBaseURL("https://meh.app/", html, "text/html", "utf-8", null) }
     }
 
-    fun command(c: String) = web.evaluateJavascript("try{cmd('$c')}catch(e){}", null)
+    private var destroyed = false
+
+    /** Every call into the WebView is guarded: after a renderer crash or destroy() it must not crash the app. */
+    private inline fun safely(block: () -> Unit) { if (!destroyed) try { block() } catch (e: Throwable) { android.util.Log.w("meh", "embed", e) } }
+
+    fun command(c: String) = safely { web.evaluateJavascript("try{cmd('$c')}catch(e){}", null) }
 
     fun stop() {
         token = -1
-        web.loadUrl("about:blank")
+        safely { web.loadUrl("about:blank") }
     }
 
-    fun pause() { command("pause"); web.onPause() }
-    fun resume() = web.onResume()
-    fun destroy() { host.removeView(web); web.destroy() }
+    fun pause() { command("pause"); safely { web.onPause() } }
+    fun resume() = safely { web.onResume() }
+    fun destroy() { safely { host.removeView(web); web.destroy() }; destroyed = true }
 }

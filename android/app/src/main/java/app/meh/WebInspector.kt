@@ -41,6 +41,11 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
         @Volatile var session: Session? = null
         /** The page's renderer crashed or was killed: this WebView must be thrown away. */
         @Volatile var dead = false
+        /**
+         * Address of the page being inspected. Kept here because shouldInterceptRequest runs on
+         * a background thread, where calling any WebView method (even view.url) crashes the app.
+         */
+        @Volatile var pageUrl = ""
 
         // Without this, a crashing page (or the renderer being killed for memory) kills the whole app.
         override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
@@ -53,7 +58,11 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
             return scheme != "http" && scheme != "https" // no app-store / intent:// jumps
         }
 
-        override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+        override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
+            // Runs on a background thread: never touch `view` here, and never let an error escape.
+            try { intercept(request) } catch (e: Throwable) { null }
+
+        private fun intercept(request: WebResourceRequest): WebResourceResponse? {
             val url = request.url.toString()
             // Never block the page being inspected itself, only what it loads (its URL may
             // legitimately contain words like "preroll" or "ads").
@@ -67,7 +76,7 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
             if (!looksLikeMedia) return null
             if (!isSegment(url) && (kind == null || kind == "file" || kind == "hls")) {
                 val key = url.substringBefore('?').substringBefore('#')
-                synchronized(s) { if (!s.sniffed.containsKey(key)) s.sniffed[key] = Sniffed(url, kind, headers["referer"] ?: view.url ?: url, s.sniffed.size + 1) }
+                synchronized(s) { if (!s.sniffed.containsKey(key)) s.sniffed[key] = Sniffed(url, kind, headers["referer"] ?: pageUrl.ifEmpty { url }, s.sniffed.size + 1) }
             }
             return EMPTY() // recorded; don't actually download/play it here
         }
@@ -78,6 +87,8 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
 
     private val pool = Channel<Pair<WebView, Client>>(Channel.UNLIMITED)
     private val all = mutableListOf<WebView>()
+    /** The activity is gone: never touch, reuse or create WebViews again. */
+    @Volatile private var destroyed = false
 
     init {
         CookieManager.getInstance().apply {
@@ -109,8 +120,9 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
     }
 
     /** Main thread: reset a WebView for the next page, or replace it if its renderer died. */
-    private fun recycle(wv: WebView, client: Client): Pair<WebView, Client> {
+    private fun recycle(wv: WebView, client: Client): Pair<WebView, Client>? {
         client.session = null
+        if (destroyed) return null
         if (!client.dead) {
             try {
                 wv.stopLoading()
@@ -121,8 +133,12 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
         all.remove(wv)
         host.removeView(wv)
         try { wv.destroy() } catch (e: Throwable) {}
-        return create()
+        return try { create() } catch (e: Throwable) { null }
     }
+
+    /** Main thread. Run JS only on a live WebView; a dead or destroyed one returns null instead of crashing. */
+    private suspend fun safeEval(wv: WebView, client: Client, js: String, timeout: Long = 3000): String? =
+        if (destroyed || client.dead) null else try { eval(wv, js, timeout) } catch (e: Throwable) { null }
 
     suspend fun inspect(hit: Hit, staticProbe: Probe?): List<Video> {
         val (wv, client) = pool.receive()
@@ -132,22 +148,23 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
         try {
             sniffed = withContext(Dispatchers.Main) {
                 client.session = session
-                if (client.dead) return@withContext emptyList()
-                wv.loadUrl(hit.url)
+                client.pageUrl = hit.url
+                if (client.dead || destroyed) return@withContext emptyList()
+                try { wv.loadUrl(hit.url) } catch (e: Throwable) { return@withContext emptyList() }
                 delay(2200)
-                eval(wv, PRESS_JS)
+                safeEval(wv, client, PRESS_JS)
                 // Keep watching after the first video request: that is usually a pre-roll ad,
                 // and the real video is only requested once the (blocked) ad fails. Stop early
                 // only once a second video has shown up.
                 val start = System.currentTimeMillis()
                 var pressedAgain = false
-                while (System.currentTimeMillis() - start < SNIFF_WINDOW) {
+                while (System.currentTimeMillis() - start < SNIFF_WINDOW && !client.dead && !destroyed) {
                     delay(400)
                     val elapsed = System.currentTimeMillis() - start
                     if (session.sniffed.size >= 2 && elapsed > 3000) break
-                    if (!pressedAgain && elapsed > 2500) { pressedAgain = true; eval(wv, PRESS_JS) }
+                    if (!pressedAgain && elapsed > 2500) { pressedAgain = true; safeEval(wv, client, PRESS_JS) }
                 }
-                val live = eval(wv, PROBE_JS)?.let { raw ->
+                val live = safeEval(wv, client, PROBE_JS)?.let { raw ->
                     (try { JSONTokener(raw).nextValue() as? String } catch (e: Exception) { null })?.let(Inspector::parseProbeJson)
                 }
                 probes = listOfNotNull(live, staticProbe)
@@ -155,7 +172,7 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
             }
         } finally {
             // Must run even when the search was cancelled, or the WebView never returns to the pool.
-            pool.trySend(withContext(NonCancellable + Dispatchers.Main) { recycle(wv, client) })
+            withContext(NonCancellable + Dispatchers.Main) { recycle(wv, client) }?.let { pool.trySend(it) }
         }
         if (probes.isEmpty()) probes = listOf(Probe(hit.url, hit.title))
 
@@ -188,18 +205,20 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
         try {
             return withContext(Dispatchers.Main) {
                 client.session = null
-                if (client.dead) return@withContext ""
-                wv.loadUrl(url)
+                client.pageUrl = url
+                if (client.dead || destroyed) return@withContext ""
+                try { wv.loadUrl(url) } catch (e: Throwable) { return@withContext "" }
                 delay(3500)
-                val raw = eval(wv, "document.documentElement.outerHTML", 5000)
+                val raw = safeEval(wv, client, "document.documentElement.outerHTML", 5000)
                 (try { JSONTokener(raw ?: "").nextValue() as? String } catch (e: Exception) { null }) ?: ""
             }
         } finally {
-            pool.trySend(withContext(NonCancellable + Dispatchers.Main) { recycle(wv, client) })
+            withContext(NonCancellable + Dispatchers.Main) { recycle(wv, client) }?.let { pool.trySend(it) }
         }
     }
 
     fun destroy() {
+        destroyed = true
         all.forEach { (it.parent as? ViewGroup)?.removeView(it); it.destroy() }
         all.clear()
     }

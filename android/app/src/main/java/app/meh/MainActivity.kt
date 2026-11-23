@@ -101,6 +101,7 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
     private var skippedCount = 0
     private val embedEnd = Runnable { onEmbedEnded(token) }
 
+    private var webUnavailable = false
     private val prefs by lazy { getSharedPreferences("meh", Context.MODE_PRIVATE) }
     private val watched = LinkedHashSet<String>()
 
@@ -108,6 +109,7 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CrashLog.install(this)
         setContentView(R.layout.activity_main)
         bindViews()
 
@@ -117,9 +119,19 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
         autoplay.setOnCheckedChangeListener { _, v -> prefs.edit().putBoolean("autoplay", v).apply() }
         skipWatched.setOnCheckedChangeListener { _, v -> prefs.edit().putBoolean("skipWatched", v).apply(); renderQueue() }
 
-        web = WebInspector(this, findViewById(R.id.inspectorHost))
+        try {
+            web = WebInspector(this, findViewById(R.id.inspectorHost))
+            embed = EmbedPlayer(this, embedBox, this)
+        } catch (e: Throwable) {
+            // Android System WebView missing, disabled or mid-update: say so instead of crashing.
+            android.util.Log.e("meh", "WebView unavailable", e)
+            CrashLog.show(this, "Can't start meh",
+                "Android System WebView isn't available on this phone right now (it may be updating or disabled).\n\n" +
+                    "Open the Play Store, update “Android System WebView” and “Chrome”, then open meh again.\n\n(${e.javaClass.simpleName}: ${e.message})")
+            webUnavailable = true
+            return
+        }
         engine = Engine(scope, web)
-        embed = EmbedPlayer(this, embedBox, this)
         images = ImageLoader(scope)
 
         exo = ExoPlayer.Builder(this).build()
@@ -168,6 +180,7 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
 
         applyInsets()
         handleIntent(intent)
+        CrashLog.showIfAny(this)
     }
 
     private fun bindViews() {
@@ -216,7 +229,7 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
 
     private fun search(raw: String) {
         val q = raw.trim()
-        if (q.isEmpty()) return
+        if (q.isEmpty() || webUnavailable) return
         hideKeyboard()
         query = q
         topQuery.setText(q)
@@ -483,6 +496,7 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when {
+            webUnavailable -> @Suppress("DEPRECATION") super.onBackPressed()
             fullscreen -> toggleFullscreen()
             results.visibility == View.VISIBLE -> goHome()
             else -> @Suppress("DEPRECATION") super.onBackPressed()
@@ -491,21 +505,25 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
 
     override fun onPause() {
         super.onPause()
+        if (webUnavailable) return
         exo.pause()
         embed.pause()
     }
 
     override fun onResume() {
         super.onResume()
+        if (webUnavailable) return
         embed.resume()
     }
 
     override fun onDestroy() {
-        engine.cancel()
         scope.cancel()
-        exo.release()
-        embed.destroy()
-        web.destroy()
+        if (!webUnavailable) {
+            engine.cancel()
+            exo.release()
+            web.destroy()
+            embed.destroy()
+        }
         super.onDestroy()
     }
 
