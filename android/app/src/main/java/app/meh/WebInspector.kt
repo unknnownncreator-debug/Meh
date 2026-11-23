@@ -73,6 +73,9 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
         }
     }
 
+    /** The browser identity the hidden WebViews use (regular mobile Chrome). */
+    val userAgent: String = mobileUserAgent(context)
+
     private val pool = Channel<Pair<WebView, Client>>(Channel.UNLIMITED)
     private val all = mutableListOf<WebView>()
 
@@ -175,6 +178,8 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
         val marked = cands.map { if (it.src.substringBefore('?') in adSrcs) it.copy(ad = true) else it }
         // Choosing may read the start of each file to learn its length: network work, off the main thread.
         return withContext(Dispatchers.IO) { Inspector.finalize(hit, probes.first(), marked) }
+            // Video links found in the WebView are played with the same identity (and its cookies).
+            .map { it.copy(userAgent = userAgent) }
     }
 
     /** Load a page in a real browser and return its HTML (for search pages that block plain requests). */
@@ -214,6 +219,10 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
 
         private fun EMPTY() = WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
 
+        /** Look like regular mobile Chrome rather than an embedded WebView. */
+        fun mobileUserAgent(context: Context): String =
+            WebSettings.getDefaultUserAgent(context).replace("; wv", "").replace(Regex("Version/\\d+\\.\\d+ "), "")
+
         @SuppressLint("SetJavaScriptEnabled")
         fun makeWebView(context: Context): WebView = WebView(context).apply {
             settings.javaScriptEnabled = true
@@ -222,8 +231,7 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
             settings.blockNetworkImage = true
             settings.loadsImagesAutomatically = false
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-            // Look like regular mobile Chrome rather than an embedded WebView.
-            settings.userAgentString = WebSettings.getDefaultUserAgent(context).replace("; wv", "").replace(Regex("Version/\\d+\\.\\d+ "), "")
+            settings.userAgentString = mobileUserAgent(context)
             isFocusable = false
             importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
             CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)

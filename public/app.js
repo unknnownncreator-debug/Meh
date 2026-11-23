@@ -187,12 +187,15 @@ function play(it) {
     console.warn('skip', it.src, why);
     S.failed.add(it.key);
     S.current = null;
-    setOverlay('Couldn’t play that one — skipping…', true);
-    setTimeout(() => { if (my === token) playNext(); }, 500);
+    S.skipped = (S.skipped || 0) + 1;
+    const name = (it.title || 'that video').slice(0, 60);
+    setOverlay(`Couldn’t play “${name}”: ${why}. Skipping…`, true);
+    setStatus(`Skipped “${name}” (${it.site}): ${why} · ${S.skipped} skipped so far`, !S.loading);
+    setTimeout(() => { if (my === token) playNext(); }, 1800);
   };
   const ended = () => { if (my === token && els.autoplay.checked) playNext(); };
   const started = () => { if (my !== token) return; clearTimeout(watchdog); setOverlay('', false, true); markWatched(it.key); };
-  watchdog = setTimeout(() => fail('timeout'), it.kind === 'embed' ? 20000 : 15000);
+  watchdog = setTimeout(() => fail('it never started (timed out)'), 20000);
 
   if (it.kind === 'embed') {
     els.video.hidden = true;
@@ -212,11 +215,12 @@ function playFile(it, { started, ended, fail, my }) {
   // Last line of defence against pre-roll ads: a video found inside a page (not declared
   // by the site) that turns out to be under 45 s long is skipped instead of played.
   v.onloadedmetadata = () => {
-    if (my === token && ['network', 'live', 'dom'].includes(it.via) && Number.isFinite(v.duration) && v.duration > 0 && v.duration < 45) fail('looks like an ad');
+    if (my === token && ['network', 'live', 'dom'].includes(it.via) && Number.isFinite(v.duration) && v.duration > 0 && v.duration < 45) fail('under 45 seconds, probably an ad');
   };
   v.onplaying = started;
   v.onended = ended;
-  v.onerror = () => fail('media error');
+  // MediaError codes: 2 network, 3 decode, 4 not supported / refused by the server.
+  v.onerror = () => fail({ 2: 'couldn’t load it from the video server', 3: 'the video file is damaged', 4: 'the site refused it or the format isn’t supported' }[v.error && v.error.code] || 'playback error');
   v.onvolumechange = () => { if (my === token && !els.unmute.hidden && !v.muted) els.unmute.hidden = true; store.set('muted', v.muted && els.unmute.hidden); };
   const go = () => {
     const p = v.play();

@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.webkit.CookieManager
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowInsets
@@ -32,10 +33,14 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.PlayerView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlin.math.roundToInt
@@ -92,7 +97,8 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
     // playback state
     private var token = 0
     private var fullscreen = false
-    private val watchdog = Runnable { failCurrent("timed out") }
+    private val watchdog = Runnable { failCurrent(SkipReason.TIMED_OUT) }
+    private var skippedCount = 0
     private val embedEnd = Runnable { onEmbedEnded(token) }
 
     private val prefs by lazy { getSharedPreferences("meh", Context.MODE_PRIVATE) }
@@ -129,10 +135,14 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
                 if (state == Player.STATE_READY) {
                     val v = current?.let { items[it] }
                     val ms = exo.duration
-                    if (v != null && v.via in setOf("network", "live", "dom") && ms != C.TIME_UNSET && ms in 1 until 45_000) failCurrent("looks like an ad")
+                    if (v != null && v.via in setOf("network", "live", "dom") && ms != C.TIME_UNSET && ms in 1 until 45_000) failCurrent(SkipReason.TOO_SHORT)
                 }
             }
-            override fun onPlayerError(error: PlaybackException) = failCurrent(error.errorCodeName)
+            override fun onPlayerError(error: PlaybackException) {
+                val http = (error.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
+                android.util.Log.w("meh", "player error ${error.errorCodeName} http=$http")
+                failCurrent(SkipReason.describe(error.errorCode, http), refresh = SkipReason.worthRefreshing(error.errorCode, http))
+            }
         })
 
         listOf(homeQuery, topQuery).forEach { field ->
@@ -216,7 +226,7 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
         stopPlayback()
         engine.cancel()
         items.clear(); failed.clear(); played.clear(); history.clear()
-        current = null; page = 0; hasMore = false; startPending = false
+        current = null; page = 0; hasMore = false; startPending = false; skippedCount = 0
         clearNow()
         setOverlay("Searching the web for “$q”…", busy = true)
         loadPage(0)
@@ -310,7 +320,7 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
         renderQueue()
         scroll.smoothScrollTo(0, 0)
         setOverlay("Loading video…", busy = true)
-        ui.postDelayed(watchdog, if (v.kind == "embed") 20_000 else 15_000)
+        ui.postDelayed(watchdog, if (v.kind == "embed") 20_000 else 20_000)
 
         if (v.kind == "embed") {
             playerView.visibility = View.GONE
@@ -322,8 +332,11 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
         }
         playerView.visibility = View.VISIBLE
         embedBox.visibility = View.GONE
+        // Ask for the video the way the page did: same browser identity, same cookies,
+        // same Referer. Many sites refuse video requests that don't match.
+        val cookies = try { CookieManager.getInstance().getCookie(v.src) } catch (e: Exception) { null }
         val ds = DefaultHttpDataSource.Factory()
-            .setUserAgent(DESKTOP_UA)
+            .setUserAgent(v.userAgent)
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(10_000).setReadTimeoutMs(15_000)
             .setDefaultRequestProperties(buildMap {
@@ -331,6 +344,7 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
                     put("Referer", v.referer)
                     Uri.parse(v.referer).let { u -> if (u.scheme != null && u.host != null) put("Origin", "${u.scheme}://${u.host}") }
                 }
+                if (!cookies.isNullOrEmpty()) put("Cookie", cookies)
             })
         val item = MediaItem.fromUri(v.src)
         val source = if (v.kind == "hls") HlsMediaSource.Factory(ds).createMediaSource(item) else ProgressiveMediaSource.Factory(ds).createMediaSource(item)
@@ -361,19 +375,53 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
         else setOverlay("Finished. Tap Next for the next video.", busy = false)
     }
 
-    private fun failCurrent(why: String) {
+    /**
+     * The current video can't be played. If a fresh link might help (refused / expired
+     * link), reopen its page once to get a new one; otherwise skip it, saying why.
+     */
+    private fun failCurrent(why: String, refresh: Boolean = false) {
         val key = current ?: return
-        android.util.Log.w("meh", "skipping ${items[key]?.src}: $why")
+        val v = items[key]
+        android.util.Log.w("meh", "can't play ${v?.src}: $why")
+        val t = token
+        ui.removeCallbacks(watchdog)
+        if (refresh && v != null && v.kind != "embed" && !v.refreshed && v.pageUrl.isNotEmpty()) {
+            setOverlay("That link was refused — getting a fresh one from ${v.site}…", busy = true)
+            scope.launch {
+                val hit = Hit(v.pageUrl, v.pageTitle)
+                val fresh = try {
+                    val st = withContext(Dispatchers.IO) { Inspector.staticStage(hit) }
+                    st.videos.ifEmpty { web.inspect(hit, st.probe) }.firstOrNull { !it.blocked }
+                } catch (e: Exception) { null }
+                if (t != token) return@launch // user moved on meanwhile
+                if (fresh == null) { skip(key, v, why); return@launch }
+                val retry = fresh.copy(refreshed = true, title = v.title.ifEmpty { fresh.title }).also { it.score = v.score }
+                items.remove(key)
+                items[retry.key] = retry
+                current = null
+                play(retry)
+            }
+            return
+        }
+        skip(key, v, why)
+    }
+
+    private fun skip(key: String, v: Video?, why: String) {
         val t = token
         failed += key
         current = null
-        setOverlay("Couldn't play that one — skipping…", busy = true)
-        ui.postDelayed({ if (t == token) playNext() }, 500)
+        skippedCount++
+        val name = v?.title?.take(60)?.ifEmpty { null } ?: "that video"
+        setOverlay("Couldn't play “$name”: $why. Skipping…", busy = true)
+        setStatus("Skipped “$name” (${v?.site ?: "?"}): $why · $skippedCount skipped so far", done = !loading)
+        ui.postDelayed({ if (t == token) playNext() }, 1800)
     }
 
     override fun onEmbedStarted(token: Int) { if (token == this.token) started() }
     override fun onEmbedEnded(token: Int) { if (token == this.token) advanceAfterEnd() }
-    override fun onEmbedFailed(token: Int, why: String) { if (token == this.token) failCurrent(why) }
+    override fun onEmbedFailed(token: Int, why: String) {
+        if (token == this.token) failCurrent(if (why == "player crashed") "the player crashed" else "the owner doesn't allow it to be played here, or it was removed")
+    }
     override fun onEmbedMuted(token: Int) { if (token == this.token) unmute.visibility = View.VISIBLE }
 
     private fun markWatched(key: String) {

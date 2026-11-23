@@ -33,6 +33,10 @@ data class Video(
     val pageText: String = "",
     val via: String = "",
     var score: Double = 0.0,
+    /** Browser identity the video was found with; some sites tie their video links to it. */
+    val userAgent: String = DESKTOP_UA,
+    /** Already re-fetched once after a failed play. */
+    val refreshed: Boolean = false,
 ) {
     /** A found video we refuse to play (YouTube, TikTok). */
     val blocked: Boolean get() = provider == "youtube" || isBlockedSite(src) || isBlockedSite(pageUrl)
