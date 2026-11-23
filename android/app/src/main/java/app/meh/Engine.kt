@@ -37,7 +37,7 @@ class Engine(private val scope: CoroutineScope, private val web: WebInspector) {
         job = scope.launch {
             var found = 0
             val emit: suspend (Video, Hit) -> Unit = emit@{ v, hit ->
-                if (v.blocked) return@emit // YouTube is excluded entirely
+                if (v.blocked) return@emit // excluded sites (YouTube, TikTok)
                 v.score = Ranker.score(query, v, hit.rank)
                 found++
                 withContext(Dispatchers.Main) { listener.onVideo(v) }

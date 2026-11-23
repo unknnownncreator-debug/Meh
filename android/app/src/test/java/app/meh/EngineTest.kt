@@ -80,7 +80,7 @@ class EngineTest {
         assertEquals("https://v.site.com/a.mp4", og[0].src)
     }
 
-    @Test fun excludesYouTubeEverywhere() {
+    @Test fun excludesYouTubeAndTikTokEverywhere() {
         // A page whose only video is YouTube yields nothing…
         assertTrue(inspect("""<html><head><meta property="og:video:url" content="https://www.youtube.com/embed/dQw4w9WgXcQ"></head>
             <body><iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe></body></html>""").isEmpty())
@@ -90,12 +90,20 @@ class EngineTest {
         assertEquals("https://site.com/media/report.webm", mixed.single().src)
         // …and YouTube links are dropped from search results.
         val page = "<!--" + "x".repeat(2500) + "-->" + listOf("https://www.youtube.com/watch?v=abcdefghijk", "https://youtu.be/abcdefghijk",
-            "https://m.youtube.com/watch?v=zzzzzzzzzzz", "https://news.example.org/volcano-video").joinToString("") { "<li class=\"b_algo\"><h2><a href=\"$it\">r</a></h2></li>" }
+            "https://m.youtube.com/watch?v=zzzzzzzzzzz", "https://www.tiktok.com/@nasa/video/7234567890123456789",
+            "https://vm.tiktok.com/ZMabc123/", "https://news.example.org/volcano-video").joinToString("") { "<li class=\"b_algo\"><h2><a href=\"$it\">r</a></h2></li>" }
         val s = Search({ url -> if ("bing.com/search" in url) page else "" })
         assertEquals(listOf("https://news.example.org/volcano-video"), s.searchWeb("volcano", 0).map { it.url })
         assertTrue(Video("embed", "https://www.youtube.com/watch?v=abcdefghijk", provider = "youtube", id = "abcdefghijk").blocked)
         assertTrue(Video("file", "https://rr1---sn-x.googlevideo.com/videoplayback?id=1").blocked)
         assertTrue(!Video("file", "https://cdn.example.org/v.mp4", pageUrl = "https://example.org/").blocked)
+        // TikTok: pages, embeds and its video servers
+        assertTrue(inspect("""<html><head><meta property="og:video" content="https://v16-webapp.tiktokcdn.com/video/volcano.mp4"></head>
+            <body><iframe src="https://www.tiktok.com/embed/v2/7234567890123456789"></iframe>
+            <video width="640" height="360" src="https://v16-webapp.tiktokcdn.com/video/volcano.mp4"></video></body></html>""").isEmpty())
+        assertTrue(Video("file", "https://v19.tiktokcdn-us.com/a/b.mp4").blocked)
+        assertTrue(Video("file", "https://cdn.example.org/v.mp4", pageUrl = "https://www.tiktok.com/@x/video/1").blocked)
+        assertTrue(!Video("file", "https://notiktok.com.example.org/v.mp4").blocked)
     }
 
     @Test fun ignoresAdsAndShortClips() {

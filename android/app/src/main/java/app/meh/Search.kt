@@ -100,7 +100,7 @@ class Search(private val plain: (String) -> String, private val browser: ((Strin
         for (i in 0 until (lists.maxOfOrNull { it.size } ?: 0)) {
             for (l in lists) {
                 val h = l.getOrNull(i) ?: continue
-                if (isYouTube(h.url)) continue // YouTube is excluded
+                if (isBlockedSite(h.url)) continue // excluded sites (YouTube, TikTok)
                 if (seen.add(normalizeKey(h.url))) merged += h
             }
         }

@@ -257,7 +257,7 @@ object Inspector {
 
         val byKey = LinkedHashMap<String, Pair<Candidate, Int>>()
         for (c in cands) {
-            if (c.provider == "youtube" || isYouTube(c.src)) continue // e.g. a YouTube player embedded in an article
+            if (c.provider == "youtube" || isBlockedSite(c.src)) continue // e.g. a YouTube/TikTok player embedded in an article
             val key = if (c.kind == "embed") "${c.provider}:${c.id}" else c.src.substringBefore('?').substringBefore('#')
             val s = scoreCandidate(c)
             if (s < 0) continue

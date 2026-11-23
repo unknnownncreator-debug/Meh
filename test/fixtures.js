@@ -56,6 +56,12 @@ const PAGES = {
     <meta property="og:video:url" content="https://www.youtube.com/embed/dQw4w9WgXcQ"></head>
     <body><iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe></body></html>`,
 
+  // TikTok is excluded too: its embed and its video server.
+  '/tiktok-only.html': `<!doctype html><html><head><title>Volcano TikTok</title>
+    <meta property="og:video" content="https://v16-webapp.tiktokcdn.com/video/volcano.mp4"></head>
+    <body><iframe src="https://www.tiktok.com/embed/v2/7234567890123456789"></iframe>
+    <video width="640" height="360" src="https://v16-webapp.tiktokcdn.com/video/volcano.mp4"></video></body></html>`,
+
   // …and an article with both a YouTube embed and its own video plays its own video.
   '/mixed.html': `<!doctype html><html><head><title>Volcano report</title></head><body>
     <iframe src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"></iframe>

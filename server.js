@@ -63,7 +63,7 @@ async function handleSearch(req, res, query) {
   const seenMedia = new Set();
 
   const emit = (item, hit) => {
-    if (isBlockedVideo(item)) return; // YouTube is excluded entirely
+    if (isBlockedVideo(item)) return; // excluded sites (YouTube, TikTok)
     const key = item.kind === 'embed' ? `${item.provider}:${item.id}` : item.src.replace(/[?#].*$/, '');
     if (seenMedia.has(key)) return;
     seenMedia.add(key);

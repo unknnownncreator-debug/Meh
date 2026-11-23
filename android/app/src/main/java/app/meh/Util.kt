@@ -76,10 +76,17 @@ fun queryParams(raw: String?): Map<String, String> {
 
 fun decodeUrl(s: String): String = try { URLDecoder.decode(s, "UTF-8") } catch (e: Exception) { s }
 
-/** YouTube is excluded entirely: its pages, embeds, streams and thumbnails. */
-private val YOUTUBE_HOST = Regex("(^|\\.)(youtube\\.com|youtu\\.be|youtube-nocookie\\.com|googlevideo\\.com|ytimg\\.com)$", IC)
-fun isYouTube(url: String?): Boolean = try {
-    url != null && YOUTUBE_HOST.containsMatchIn(URI(url.trim()).host ?: "")
+/** Sites excluded entirely — their pages, short links, embeds, video servers and thumbnails. */
+val BLOCKED_SITES = listOf(
+    // YouTube
+    "youtube.com", "youtu.be", "youtube-nocookie.com", "googlevideo.com", "ytimg.com",
+    // TikTok
+    "tiktok.com", "tiktokv.com", "tiktokcdn.com", "tiktokcdn-us.com", "tiktokcdn-eu.com", "tiktokw.us",
+    "ttwstatic.com", "ibytedtos.com", "byteoversea.com", "muscdn.com",
+)
+private val BLOCKED_HOST = Regex("(^|\\.)(" + BLOCKED_SITES.joinToString("|") { Regex.escape(it) } + ")$", IC)
+fun isBlockedSite(url: String?): Boolean = try {
+    url != null && BLOCKED_HOST.containsMatchIn(URI(url.trim()).host ?: "")
 } catch (e: Exception) { false }
 
 fun domainOf(url: String): String = try {

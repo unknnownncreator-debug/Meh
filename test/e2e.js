@@ -38,7 +38,7 @@ function readSse(url) {
 (async () => {
   const fixtures = await startFixtures();
   const F = `http://127.0.0.1:${fixtures.address().port}`;
-  const pages = ['static-video', 'jsonld', 'js-player', 'embed', 'ad-only', 'no-video', 'youtube-only', 'mixed'].map((p) => `${F}/${p}.html`);
+  const pages = ['static-video', 'jsonld', 'js-player', 'embed', 'ad-only', 'no-video', 'youtube-only', 'tiktok-only', 'mixed'].map((p) => `${F}/${p}.html`);
   process.env.MEH_ALLOW_PRIVATE = '1';
   process.env.MEH_TEST_PAGES = pages.join(',');
 
@@ -166,13 +166,15 @@ function readSse(url) {
     }
   });
 
-  await step('YouTube results are dropped from every engine', async () => {
+  await step('YouTube and TikTok results are dropped from every engine', async () => {
     const { searchWeb } = require('../lib/search');
     const realFetch = global.fetch;
     const page = '<!--' + 'x'.repeat(2500) + '-->' +
       '<li class="b_algo"><h2><a href="https://www.youtube.com/watch?v=abcdefghijk">YT</a></h2></li>' +
       '<li class="b_algo"><h2><a href="https://youtu.be/abcdefghijk">YT short</a></h2></li>' +
       '<li class="b_algo"><h2><a href="https://m.youtube.com/watch?v=zzzzzzzzzzz">YT mobile</a></h2></li>' +
+      '<li class="b_algo"><h2><a href="https://www.tiktok.com/@nasa/video/7234567890123456789">TikTok</a></h2></li>' +
+      '<li class="b_algo"><h2><a href="https://vm.tiktok.com/ZMabc123/">TikTok short link</a></h2></li>' +
       '<li class="b_algo"><h2><a href="https://news.example.org/volcano-video">News</a></h2></li>';
     global.fetch = async () => new Response(page, { status: 200, headers: { 'content-type': 'text/html' } });
     try {
@@ -217,8 +219,9 @@ function readSse(url) {
     assert.equal(byPage['js-player.html'].via, 'network');
     assert.equal(byPage['embed.html'].provider, 'vimeo', 'embedded Vimeo iframe');
     assert.ok(!byPage['youtube-only.html'], 'YouTube-only page yields nothing');
+    assert.ok(!byPage['tiktok-only.html'], 'TikTok-only page yields nothing');
     assert.match(byPage['mixed.html'].src, /report\.webm$/, 'article plays its own video, not the YouTube embed');
-    assert.ok(items.every((i) => i.provider !== 'youtube' && !/youtube|youtu\.be|googlevideo/.test(i.src + i.pageUrl)), 'no YouTube anywhere');
+    assert.ok(items.every((i) => i.provider !== 'youtube' && !/youtube|youtu\.be|googlevideo|tiktok/.test(i.src + i.pageUrl)), 'no YouTube or TikTok anywhere');
     assert.ok(!byPage['ad-only.html'], 'ad-only page yields nothing');
     assert.ok(!byPage['no-video.html'], 'text page yields nothing');
     const top = [...items].sort((a, b) => b.score - a.score)[0];
