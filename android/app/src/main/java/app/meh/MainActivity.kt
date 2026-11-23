@@ -1,6 +1,7 @@
 package app.meh
 
-import android.app.Activity
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
@@ -46,7 +47,7 @@ import kotlinx.coroutines.cancel
 import kotlin.math.roundToInt
 
 @OptIn(UnstableApi::class)
-class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
+class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
 
     private val scope = MainScope()
     private val ui = Handler(Looper.getMainLooper())
@@ -112,7 +113,13 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
         super.onCreate(savedInstanceState)
         CrashLog.install(this)
         setContentView(R.layout.activity_main)
+        onBackPressedDispatcher.addCallback(this, backCallback)
         scope.launch(Dispatchers.IO) { Blocklist.loadFromAssets(applicationContext) }
+        // Claim the same Chrome version the phone actually has (WebView version = Chrome version).
+        try {
+            android.webkit.WebView.getCurrentWebViewPackage()?.versionName?.substringBefore('.')?.toIntOrNull()
+                ?.takeIf { it in 100..999 }?.let { chromeMajor = it }
+        } catch (e: Throwable) { /* keep the built-in default */ }
         bindViews()
 
         watched += (prefs.getString("watched", "") ?: "").split('\n').filter { it.isNotEmpty() }
@@ -238,6 +245,7 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
         homeQuery.setText(q)
         home.visibility = View.GONE
         results.visibility = View.VISIBLE
+        updateBack()
         stopPlayback()
         engine.cancel()
         items.clear(); failed.clear(); played.clear(); history.clear()
@@ -484,6 +492,7 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
                 View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY) else LAYOUT_FLAGS
         }
         findViewById<View>(R.id.app).requestApplyInsets()
+        updateBack()
     }
 
     // ------------------------------------------------------------------ navigation / lifecycle
@@ -496,16 +505,25 @@ class MainActivity : Activity(), Engine.Listener, EmbedPlayer.Events {
         current = null
         results.visibility = View.GONE
         home.visibility = View.VISIBLE
+        updateBack()
     }
 
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        when {
-            webUnavailable -> @Suppress("DEPRECATION") super.onBackPressed()
-            fullscreen -> toggleFullscreen()
-            results.visibility == View.VISIBLE -> goHome()
-            else -> @Suppress("DEPRECATION") super.onBackPressed()
+    /**
+     * Back: leave full screen, then go from results to home. The callback is only enabled
+     * while there's something to go back from, so on the home screen the system's own
+     * (predictive) back gesture applies. Works the same on every Android version.
+     */
+    private val backCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            when {
+                fullscreen -> toggleFullscreen()
+                results.visibility == View.VISIBLE -> goHome()
+            }
         }
+    }
+
+    private fun updateBack() {
+        backCallback.isEnabled = !webUnavailable && (fullscreen || results.visibility == View.VISIBLE)
     }
 
     override fun onPause() {

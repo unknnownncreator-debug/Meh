@@ -77,7 +77,6 @@ class EmbedPlayer(private val context: Context, private val host: ViewGroup, pri
 
     fun play(v: Video, t: Int) {
         token = t
-        if (v.provider == "youtube") { main.post { events.onEmbedFailed(t, "youtube is excluded") }; return }
         val id = JSONObject.quote(v.id ?: "")
         val body = when (v.provider) {
             "vimeo" -> """

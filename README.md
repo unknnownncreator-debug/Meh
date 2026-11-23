@@ -15,7 +15,7 @@ The app does everything on the phone, with no computer or server needed:
 - Turn the phone sideways, or tap the corner button, for full screen. Back exits full screen and then goes home.
 - You can share text from any app to **meh** to search for it.
 
-**Build it yourself:** in `android/`, run `./gradlew assembleRelease`. You need the Android SDK (platform 35, build-tools 35.0.0) and JDK 17 or newer. The signing key `android/app/meh.keystore` is kept in the repo on purpose, so every build installs over the previous one.
+**Build it yourself:** in `android/`, run `./gradlew assembleRelease`. You need the Android SDK (platform 37, build-tools 37.0.0) and JDK 17 or newer; the Gradle wrapper fetches Gradle 9.9 itself. The signing key `android/app/meh.keystore` is kept in the repo on purpose, so every build installs over the previous one.
 
 ## Run it on a computer
 

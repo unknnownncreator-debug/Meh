@@ -3,8 +3,16 @@ package app.meh
 import java.net.URI
 import java.net.URLDecoder
 
-const val DESKTOP_UA =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+/**
+ * Chrome version the app claims on its plain web requests. Set at startup from the phone's
+ * own WebView (which *is* Chrome), so it stays current as the phone updates; an out-of-date
+ * browser looks suspicious to sites and gets more bot checks.
+ */
+@Volatile var chromeMajor: Int = 157
+
+/** Desktop Chrome identity for search pages, page fetches and length checks. */
+val DESKTOP_UA: String
+    get() = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$chromeMajor.0.0.0 Safari/537.36"
 
 private val IC = setOf(RegexOption.IGNORE_CASE)
 

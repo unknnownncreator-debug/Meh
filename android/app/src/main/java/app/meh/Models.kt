@@ -12,8 +12,6 @@ data class Hit(
     val duration: Double? = null,
     val engine: String = "",
     val rank: Int = 0,
-    /** Set when the search page itself already tells us how to play it (YouTube results). */
-    val media: Video? = null,
 )
 
 /** A playable video found on a page. */

@@ -92,13 +92,7 @@ async function handleSearch(req, res, query) {
     stats.pagesTotal = queue.length;
     status(queue.length ? `Inspecting ${queue.length} pages for video…` : 'No search results. The search engines may be blocking requests — try again in a moment.');
 
-    // Hits that already carry playable media go out immediately.
-    const toInspect = [];
-    for (const hit of queue) {
-      if (hit.media) { emit({ ...hit.media, pageUrl: hit.url, pageTitle: hit.title, pageText: hit.snippet || '' }, hit); stats.pagesDone++; }
-      else toInspect.push(hit);
-    }
-    if (stats.pagesDone) status(`Inspecting ${toInspect.length} pages for video…`);
+    const toInspect = queue;
 
     let next = 0;
     const worker = async () => {

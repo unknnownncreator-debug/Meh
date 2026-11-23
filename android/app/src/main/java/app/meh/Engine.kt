@@ -52,9 +52,7 @@ class Engine(private val scope: CoroutineScope, private val web: WebInspector) {
                 listener.onDone(0, false)
                 return@launch
             }
-            // Search pages that already tell us how to play a result go out first.
-            for (h in queue) h.media?.let { emit(it, h) }
-            val toInspect = queue.filter { it.media == null }
+            val toInspect = queue
             var done = 0
             listener.onStatus("Inspecting ${toInspect.size} pages for video…")
             val staticGate = Semaphore(6)

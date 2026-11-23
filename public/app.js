@@ -204,7 +204,6 @@ function play(it) {
     els.embed.hidden = false;
     const host = document.createElement('div');
     els.embed.appendChild(host);
-    if (it.provider === 'youtube') return fail('youtube is excluded');
     if (it.provider === 'vimeo') return playVimeo(it, host, { started, ended, fail, my });
     return playIframe(it, { started, ended });
   }
