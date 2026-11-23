@@ -250,6 +250,57 @@ function readSse(url) {
     }
   });
 
+  await step('adult sites: rule34 search parsers, opt-in, and minors ALWAYS excluded', async () => {
+    const { depictsMinors, dropAdult } = require('../lib/util');
+    const { parseRule34video, parsePaheal, parseRule34xxx, ENGINES, searchWeb } = require('../lib/search');
+    // The exclusion terms, including compounds; ordinary words that merely contain them pass.
+    for (const t of ['loli', 'young_link', 'Shota boy', 'aged-down', 'middle school', 'toddlercon', 'little_sister', 'teen'])
+      assert.ok(depictsMinors(t), t);
+    for (const t of ['overwatch', 'mercy', 'volcano eruption', 'kidnapped', 'skid', 'babylon', 'minority report', 'cuba'])
+      assert.ok(!depictsMinors(t), t);
+
+    // Result pages shaped like the real sites'.
+    const rv = '<div class="item thumb video_1"><a class="th js-open-popup" href="https://rule34video.com/video/101/dragon-fight/"><img alt="Dragon fight"><div class="time">13:14</div></a><div class="thumb_title">Dragon fight</div></div>' +
+      '<div class="item thumb video_2"><a class="th" href="https://rule34video.com/video/102/young-link-x/"><div class="time">2:00</div><div class="thumb_title">Young Link x</div></a></div>';
+    assert.deepEqual(parseRule34video(rv).map((h) => [h.url, h.title, h.duration]), [
+      ['https://rule34video.com/video/101/dragon-fight/', 'Dragon fight', 794], ['https://rule34video.com/video/102/young-link-x/', 'Young Link x', 120]]);
+    const ph = "<div class='shm-thumb thumb' data-mime='video/mp4' data-tags='dragon animated sound' data-post-id='1'><a class='shm-thumb-link' href='/post/view/1'></a></div>" +
+      "<div class='shm-thumb thumb' data-mime='image/png' data-tags='dragon' data-post-id='2'><a href='/post/view/2'></a></div>" +
+      "<div class='shm-thumb thumb' data-mime='video/webm' data-tags='dragon loli animated' data-post-id='3'><a href='/post/view/3'></a></div>";
+    assert.deepEqual(parsePaheal(ph).map((h) => h.url), ['https://rule34.paheal.net/post/view/1'], 'videos only, minors-tagged dropped');
+    const xx = '<span id="s7" class="thumb"><a id="p7" href="index.php?page=post&amp;s=view&amp;id=7"><img alt="dragon animated video" title=" dragon animated video score:9 rating:explicit"></a></span>' +
+      '<span id="s8" class="thumb"><a id="p8" href="index.php?page=post&amp;s=view&amp;id=8"><img title="dragon shota video"></a></span>';
+    assert.deepEqual(parseRule34xxx(xx).map((h) => [h.url, h.title]), [['https://rule34.xxx/index.php?page=post&s=view&id=7', 'dragon animated video']]);
+
+    // Queries: minus-tags on booru searches; queries asking for minors never reach adult sites.
+    const realFetch = global.fetch;
+    const asked = [];
+    global.fetch = async (url) => { asked.push(String(url)); return new Response('', { status: 404 }); };
+    try {
+      await ENGINES.paheal('dragon fight', 0); await ENGINES.rule34xxx('dragon', 1); await ENGINES.rule34video('dragon fight', 0);
+      assert.match(asked[0], /^https:\/\/rule34\.paheal\.net\/post\/list\/animated%20dragon%20fight%20-loli%20-lolicon.*\/1$/);
+      assert.match(asked[1], /^https:\/\/rule34\.xxx\/index\.php\?page=post&s=list&tags=video\+dragon\+-loli\+.*&pid=42$/);
+      assert.equal(asked[2], 'https://rule34video.com/search/dragon-fight/');
+      asked.length = 0;
+      for (const e of ['redgifs', 'rule34video', 'paheal', 'rule34xxx']) assert.deepEqual(await ENGINES[e]('loli dragon', 0), []);
+      assert.equal(asked.length, 0, 'nothing sent to adult sites for such a query');
+      // Adult links from general engines: hidden when switched off; minors-marked ones always.
+      const page = '<!--' + 'x'.repeat(2500) + '--><li class="b_algo"><h2><a href="https://rule34video.com/video/5/dragon/">Dragon</a></h2></li>' +
+        '<li class="b_algo"><h2><a href="https://rule34video.com/video/6/loli-x/">x</a></h2></li><li class="b_algo"><h2><a href="https://news.example.org/v">n</a></h2></li>';
+      global.fetch = async () => new Response(page, { status: 200, headers: { 'content-type': 'text/html' } });
+      assert.deepEqual((await searchWeb('dragon', { engines: ['bing'] })).map((h) => h.url), ['https://news.example.org/v']);
+      assert.deepEqual((await searchWeb('dragon', { engines: ['bing'], includeRedgifs: true })).map((h) => h.url), ['https://rule34video.com/video/5/dragon/', 'https://news.example.org/v']);
+    } finally {
+      global.fetch = realFetch;
+    }
+    // Final gate on found videos (page text and tags are checked too).
+    const v = { src: 'https://r34i.paheal-cdn.net/a.mp4', pageUrl: 'https://rule34.paheal.net/post/view/1', title: 'Dragon', description: '', pageTitle: '', pageText: 'Tags: dragon animated' };
+    assert.equal(dropAdult(v, {}, true), false);
+    assert.equal(dropAdult(v, {}, false), true, 'switched off');
+    assert.equal(dropAdult({ ...v, pageText: 'Tags: dragon shotacon animated' }, {}, true), true, 'minors tag on the page');
+    assert.equal(dropAdult({ ...v, src: 'https://cdn.example.org/a.mp4', pageUrl: 'https://news.example.org/a' }, {}, false), false, 'not an adult site');
+  });
+
   await step('rewrites HLS playlists through the proxy', () => {
     const out = rewritePlaylist('#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"\nseg0.ts\nhttps://cdn.x/seg1.ts', 'https://h.com/v/index.m3u8', 'https://h.com/page');
     assert.match(out, /URI="\/proxy\?u=https%3A%2F%2Fh\.com%2Fv%2Fkey\.bin&r=/);

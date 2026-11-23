@@ -136,6 +136,18 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
         return try { create() } catch (e: Throwable) { null }
     }
 
+    /**
+     * Main thread. Cloudflare-style "checking your browser" pages clear themselves after a few
+     * seconds in a real browser: wait (up to ~15 s) for the real page before reading it.
+     */
+    private suspend fun waitOutChallenge(wv: WebView, client: Client) {
+        repeat(30) {
+            val r = safeEval(wv, client, CHALLENGE_JS) ?: return
+            if (r != "true") return
+            delay(500)
+        }
+    }
+
     /** Main thread. Run JS only on a live WebView; a dead or destroyed one returns null instead of crashing. */
     private suspend fun safeEval(wv: WebView, client: Client, js: String, timeout: Long = 3000): String? =
         if (destroyed || client.dead) null else try { eval(wv, js, timeout) } catch (e: Throwable) { null }
@@ -152,6 +164,7 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
                 if (client.dead || destroyed) return@withContext emptyList()
                 try { wv.loadUrl(hit.url) } catch (e: Throwable) { return@withContext emptyList() }
                 delay(2200)
+                waitOutChallenge(wv, client)
                 safeEval(wv, client, PRESS_JS)
                 // Keep watching after the first video request: that is usually a pre-roll ad,
                 // and the real video is only requested once the (blocked) ad fails. Stop early
@@ -209,6 +222,7 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
                 if (client.dead || destroyed) return@withContext ""
                 try { wv.loadUrl(url) } catch (e: Throwable) { return@withContext "" }
                 delay(3500)
+                waitOutChallenge(wv, client)
                 val raw = safeEval(wv, client, "document.documentElement.outerHTML", 5000)
                 (try { JSONTokener(raw ?: "").nextValue() as? String } catch (e: Exception) { null }) ?: ""
             }
@@ -255,6 +269,13 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
             importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
             CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
         }
+
+        /** True while the page is a bot-check interstitial (Cloudflare and similar). */
+        const val CHALLENGE_JS = """(function(){
+  var t = document.title || '';
+  return /just a moment|checking your browser|attention required|ddos protection/i.test(t) ||
+    !!document.querySelector('#challenge-form,#challenge-running,#cf-challenge-running,[id^="cf-chl"],script[src*="challenge-platform"]');
+})()"""
 
         /** Mute everything, start every <video>, and click the obvious play buttons. */
         const val PRESS_JS = """(function(){

@@ -38,7 +38,8 @@ class Engine(private val scope: CoroutineScope, private val web: WebInspector) {
             var found = 0
             val emit: suspend (Video, Hit) -> Unit = emit@{ v, hit ->
                 if (v.blocked) return@emit // excluded sites (YouTube, TikTok)
-                if (!includeRedgifs && (isRedgifs(v.pageUrl) || isRedgifs(v.src))) return@emit // RedGIFs switched off
+                // Adult sites switched off, or content depicting minors (always excluded).
+                if (Adult.drop(v, hit, includeRedgifs)) return@emit
                 v.score = Ranker.score(query, v, hit.rank)
                 found++
                 withContext(Dispatchers.Main) { listener.onVideo(v) }

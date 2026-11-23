@@ -105,20 +105,43 @@ class Search(
     }
 
     fun redgifs(query: String, page: Int): List<Hit> {
+        if (Adult.depictsMinors(query)) return emptyList() // never search adult sites for that
         val url = "https://api.redgifs.com/v2/gifs/search?search_text=${enc(query)}&order=trending&count=40&page=${page + 1}"
         for (attempt in 0..1) {
             val t = token(fresh = attempt > 0) ?: return emptyList() // second try: expired or refused token
             val (code, body) = getJson(url, mapOf("Authorization" to "Bearer $t")) ?: return emptyList()
             if (code == 401 || code == 403) continue
-            return if (code == 200) parseRedgifs(body) else emptyList()
+            return if (code == 200) parseRedgifs(body).filter { !Adult.depictsMinors("${it.title} ${it.snippet}") } else emptyList()
         }
         return emptyList()
+    }
+
+    // ---------- rule34 sites (opt-in, 18+; content depicting minors always excluded) ----------
+
+    /** rule34video.com: video-only site; search page lists each video's page, title and length. */
+    fun rule34video(query: String, page: Int): List<Hit> {
+        if (page > 0 || Adult.depictsMinors(query)) return emptyList()
+        val slug = query.trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+        if (slug.isEmpty()) return emptyList()
+        return fetchHits("https://rule34video.com/search/$slug/", ::parseRule34video).filter { !Adult.depictsMinors("${it.title} ${it.url}") }
+    }
+
+    /** rule34.paheal.net: each result says its file type and tags, so non-videos are skipped up front. */
+    fun paheal(query: String, page: Int): List<Hit> {
+        if (Adult.depictsMinors(query)) return emptyList()
+        return fetchHits("https://rule34.paheal.net/post/list/${booruTags(query, "animated").replace(" ", "%20")}/${page + 1}", ::parsePaheal)
+    }
+
+    /** rule34.xxx: behind Cloudflare, so its pages are read through the hidden browser. */
+    fun rule34xxx(query: String, page: Int): List<Hit> {
+        if (Adult.depictsMinors(query)) return emptyList()
+        return fetchHits("https://rule34.xxx/index.php?page=post&s=list&tags=${enc(booruTags(query, "video"))}&pid=${page * 42}", ::parseRule34xxx)
     }
 
     fun searchWeb(query: String, page: Int, includeRedgifs: Boolean = false, onEngine: (String, Int) -> Unit = { _, _ -> }): List<Hit> {
         val engines: List<Pair<String, (String, Int) -> List<Hit>>> = listOf(
             "Google" to ::google, "Bing" to ::bing, "Bing Videos" to ::bingVideos, "DuckDuckGo" to ::duckduckgo,
-        ) + (if (includeRedgifs) listOf("RedGIFs" to ::redgifs) else emptyList())
+        ) + (if (includeRedgifs) listOf("RedGIFs" to ::redgifs, "Rule34Video" to ::rule34video, "Rule34 paheal" to ::paheal, "Rule34.xxx" to ::rule34xxx) else emptyList())
         val results = arrayOfNulls<List<Hit>>(engines.size)
         val threads = engines.mapIndexed { i, (name, fn) ->
             Thread {
@@ -135,7 +158,8 @@ class Search(
             for (l in lists) {
                 val h = l.getOrNull(i) ?: continue
                 if (isBlockedSite(h.url)) continue // excluded sites (YouTube, TikTok)
-                if (!includeRedgifs && isRedgifs(h.url)) continue // RedGIFs switched off
+                if (!includeRedgifs && Adult.isAdultSite(h.url)) continue // adult sites switched off
+                if (Adult.isAdultSite(h.url) && Adult.depictsMinors("${h.title} ${h.snippet} ${h.url}")) continue // always excluded
                 if (seen.add(normalizeKey(h.url))) merged += h
             }
         }
@@ -143,6 +167,50 @@ class Search(
     }
 
     companion object {
+        /** Words of a free-text query as booru tags, plus the minors minus-tags. */
+        fun booruTags(query: String, extra: String): String {
+            val words = query.lowercase().split(Regex("\\s+")).map { it.replace(Regex("[^a-z0-9_'.:-]"), "") }.filter { it.isNotEmpty() }.take(5)
+            return (listOf(extra) + words + Adult.NEGATIVE_TAGS.map { "-$it" }).joinToString(" ")
+        }
+
+        fun parseRule34video(html: String): List<Hit> {
+            val hits = mutableListOf<Hit>()
+            for (b in html.split(Regex("<div[^>]+class=\"item thumb\\b", RegexOption.IGNORE_CASE)).drop(1)) {
+                val url = Regex("href=\"(https://rule34video\\.com/video/\\d+/[^\"]+/)\"", RegexOption.IGNORE_CASE).find(b)?.groupValues?.get(1) ?: continue
+                val title = Regex("class=\"thumb_title\"[^>]*>([\\s\\S]*?)</div>", RegexOption.IGNORE_CASE).find(b)?.groupValues?.get(1)?.let(::stripTags)?.ifEmpty { null }
+                    ?: decodeEntities(Regex("<img[^>]+alt=\"([^\"]*)\"", RegexOption.IGNORE_CASE).find(b)?.groupValues?.get(1) ?: "")
+                val time = Regex("class=\"time\"[^>]*>\\s*([\\d:]+)\\s*<", RegexOption.IGNORE_CASE).find(b)?.groupValues?.get(1)
+                hits += Hit(url, title, "", parseDuration(time))
+            }
+            return hits
+        }
+
+        fun parsePaheal(html: String): List<Hit> {
+            val hits = mutableListOf<Hit>()
+            for (m in Regex("<div[^>]+class=['\"][^'\"]*shm-thumb[^'\"]*['\"][^>]*>[\\s\\S]{0,3000}?</div>", RegexOption.IGNORE_CASE).findAll(html)) {
+                val div = m.value
+                val mime = Regex("data-mime=['\"]([^'\"]+)", RegexOption.IGNORE_CASE).find(div)?.groupValues?.get(1) ?: ""
+                if (!mime.lowercase().startsWith("video/")) continue
+                val tags = decodeEntities(Regex("data-tags=['\"]([^'\"]*)", RegexOption.IGNORE_CASE).find(div)?.groupValues?.get(1) ?: "")
+                if (Adult.depictsMinors(tags)) continue
+                val href = Regex("href=['\"](/post/view/\\d+)", RegexOption.IGNORE_CASE).find(div)?.groupValues?.get(1) ?: continue
+                hits += Hit("https://rule34.paheal.net$href", tags.replace('_', ' ').take(200), tags)
+            }
+            return hits
+        }
+
+        fun parseRule34xxx(html: String): List<Hit> {
+            val hits = mutableListOf<Hit>()
+            for (m in Regex("<span[^>]+class=[\"']thumb[\"'][^>]*>([\\s\\S]{0,2000}?)</span>", RegexOption.IGNORE_CASE).findAll(html)) {
+                val id = Regex("[?&;]id=(\\d+)").find(m.groupValues[1])?.groupValues?.get(1) ?: continue
+                val tags = decodeEntities(Regex("\\b(?:title|alt)=[\"']([^\"']*)[\"']", RegexOption.IGNORE_CASE).find(m.groupValues[1])?.groupValues?.get(1) ?: "").trim()
+                if (Adult.depictsMinors(tags)) continue
+                val title = tags.replace(Regex("\\b(score|rating):\\S+"), "").replace('_', ' ').trim().take(200)
+                hits += Hit("https://rule34.xxx/index.php?page=post&s=view&id=$id", title, tags)
+            }
+            return hits
+        }
+
         fun parseRedgifs(json: String): List<Hit> {
             val gifs = try { org.json.JSONObject(json).optJSONArray("gifs") } catch (e: Throwable) { null } ?: return emptyList()
             val hits = mutableListOf<Hit>()

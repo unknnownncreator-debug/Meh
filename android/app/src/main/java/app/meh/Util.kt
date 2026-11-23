@@ -41,9 +41,10 @@ fun isSegment(url: String) = SEGMENT_EXT.containsMatchIn(url.substringBefore('?'
 fun mediaKindFromUrl(url: String, contentType: String = ""): String? {
     val ct = contentType.lowercase()
     return when {
-        "mpegurl" in ct || Regex("\\.m3u8(\\?|#|$)", IC).containsMatchIn(url) -> "hls"
+        // A trailing slash is allowed: KVS-based video sites write file links as ".../name.mp4/?token".
+        "mpegurl" in ct || Regex("\\.m3u8/?(\\?|#|$)", IC).containsMatchIn(url) -> "hls"
         "dash+xml" in ct || Regex("\\.mpd(\\?|#|$)", IC).containsMatchIn(url) -> "dash"
-        ct.startsWith("video/") || Regex("\\.(mp4|m4v|webm|ogv|mov)(\\?|#|$)", IC).containsMatchIn(url) -> "file"
+        ct.startsWith("video/") || Regex("\\.(mp4|m4v|webm|ogv|mov)/?(\\?|#|$)", IC).containsMatchIn(url) -> "file"
         else -> null
     }
 }
@@ -101,11 +102,6 @@ val BLOCKED_SITES = listOf(
 private val BLOCKED_HOST = Regex("(^|\\.)(" + BLOCKED_SITES.joinToString("|") { Regex.escape(it) } + ")$", IC)
 fun isBlockedSite(url: String?): Boolean = try {
     url != null && BLOCKED_HOST.containsMatchIn(URI(url.trim()).host ?: "")
-} catch (e: Exception) { false }
-
-/** RedGIFs (opt-in, 18+). */
-fun isRedgifs(url: String?): Boolean = try {
-    url != null && Regex("(^|\\.)redgifs\\.com$", IC).containsMatchIn(URI(url.trim()).host ?: "")
 } catch (e: Exception) { false }
 
 /** RedGIFs pages declare the *silent* copy ("Name-silent.mp4"); without the suffix is the copy with sound. */

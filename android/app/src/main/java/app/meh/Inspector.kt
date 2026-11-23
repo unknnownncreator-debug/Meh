@@ -340,7 +340,9 @@ object Inspector {
                 title = c.title.ifEmpty { pageTitle }, description = c.description.ifEmpty { pageDesc },
                 thumbnail = c.thumbnail ?: pageThumb,
                 duration = c.duration ?: hit.duration, siteName = siteName,
-                pageUrl = hit.url, pageTitle = pageTitle, pageText = main.text, via = c.origin,
+                // Keywords / tag metadata count as page text (relevance, and the adult-site safety check).
+                pageUrl = hit.url, pageTitle = pageTitle, via = c.origin,
+                pageText = listOfNotNull(m["keywords"], m["article:tag"], m["video:tag"], main.text).joinToString(" ").take(4000),
             )
         }
     }

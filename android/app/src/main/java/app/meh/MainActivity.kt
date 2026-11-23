@@ -133,7 +133,7 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
         skipWatched.isChecked = prefs.getBoolean("skipWatched", true)
         autoplay.setOnCheckedChangeListener { _, v -> prefs.edit().putBoolean("autoplay", v).apply() }
         skipWatched.setOnCheckedChangeListener { _, v -> prefs.edit().putBoolean("skipWatched", v).apply(); renderQueue() }
-        // RedGIFs is opt-in content (18+): searched only while this is on, hidden from the queue when off.
+        // "Adult sites (18+)" — RedGIFs and the rule34 sites: searched only while on, hidden from the queue when off.
         redgifs.isChecked = prefs.getBoolean("redgifs", true)
         redgifs.setOnCheckedChangeListener { _, v -> prefs.edit().putBoolean("redgifs", v).apply(); renderQueue() }
         // Minimum length: filters the queue right away; the playing video is never interrupted.
@@ -325,7 +325,7 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
 
     /** Ranked queue: best matches first, sites spread out, watched videos last or hidden. */
     private fun upcoming(): List<Video> {
-        val pool = items.values.filter { it.key != current && it.key !in played && it.key !in failed && (redgifs.isChecked || !isRedgifs(it.pageUrl.ifEmpty { it.src })) && MinLength.allows(it.duration, minSeconds) }
+        val pool = items.values.filter { it.key != current && it.key !in played && it.key !in failed && (redgifs.isChecked || !Adult.isAdultSite(it.pageUrl.ifEmpty { it.src })) && MinLength.allows(it.duration, minSeconds) }
         val fresh = pool.filter { it.key !in watched }
         val old = if (skipWatched.isChecked) emptyList() else pool.filter { it.key in watched }
         return Ranker.order(fresh) + Ranker.order(old)
