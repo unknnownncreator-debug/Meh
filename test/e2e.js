@@ -375,6 +375,20 @@ function readSse(url) {
     assert.equal(ev.filter((e) => e.event === 'item').length, 1, 'quoted phrase must appear exactly');
   });
 
+  await step("shared cookies: a site's session cookie reaches its video stream", async () => {
+    const direct = await fetch(`${F}/media/clips/c1.mp4`, { headers: { Range: 'bytes=0-99' } });
+    assert.equal(direct.status, 403, 'the test site refuses the video without its session cookie');
+    const ev = await readSse(`${M}/api/search?q=volcano&testpages=${encodeURIComponent(`${F}/session-page.html`)}`);
+    const item = ev.filter((e) => e.event === 'item').map((e) => e.data).find((i) => /c1\.mp4$/.test(i.src));
+    assert.ok(item, 'video found on the session page');
+    assert.equal(item.duration, 200, 'its length was read too (the probe sent the cookie)');
+    const r = await fetch(M + item.playUrl, { headers: { Range: 'bytes=0-99' } });
+    assert.equal(r.status, 206, 'streamed through the relay with the page\'s cookie');
+    assert.equal((await r.arrayBuffer()).byteLength, 100);
+    const { header } = require('../lib/cookies');
+    assert.match(header('https://www.pornhub.com/view_video.php?viewkey=1'), /accessAgeDisclaimerPH=1/, 'age-confirmation defaults');
+  });
+
   await step('proxy streams media with range requests', async () => {
     const file = items.find((i) => i.kind === 'file');
     const r = await fetch(M + file.playUrl, { headers: { Range: 'bytes=0-99' } });

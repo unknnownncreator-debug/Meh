@@ -130,6 +130,10 @@ const PAGES = {
   '/body-mention.html': `<!doctype html><html><head><title>Cooking pasta at home</title></head><body>
     <p>Unrelated aside: a volcano eruption once delayed my flight.</p><video width="640" height="360" src="/media/clips/l8.mp4"></video></body></html>`,
 
+  // A site whose video only plays for the visitor that loaded its page (session cookie).
+  '/session-page.html': `<!doctype html><html><head><title>Volcano members clip</title></head><body>
+    <video width="640" height="360" src="/media/clips/c1.mp4"></video></body></html>`,
+
   '/no-video.html': `<!doctype html><html><head><title>Volcano text article</title></head><body><p>Just text about a volcano.</p></body></html>`,
 };
 
@@ -137,11 +141,17 @@ function startFixtures(port = 0) {
   ensureMedia();
   const server = http.createServer((req, res) => {
     const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-    if (PAGES[p]) { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(PAGES[p]); return; }
+    if (PAGES[p]) {
+      const headers = { 'Content-Type': 'text/html' };
+      if (p === '/session-page.html') headers['Set-Cookie'] = 'sess=xyz789; Path=/; HttpOnly';
+      res.writeHead(200, headers); res.end(PAGES[p]); return;
+    }
+    // Session-only media: refused without the page's cookie.
+    if (p.startsWith('/media/clips/c') && !/\bsess=xyz789\b/.test(req.headers.cookie || '')) { res.writeHead(403); res.end('no session'); return; }
     let file = null;
     if (p.startsWith('/media/clips/')) {
       // Many URLs, few files: s* = 25 s ad, m* = 60 s, f*/l* = 200 s, n* = 200 s (header at end), q* = 25 s (header at end)
-      const pick = { s: 'short.mp4', m: 'mid.mp4', f: 'long.mp4', l: 'long.mp4', n: 'long-nofast.mp4', q: 'short-nofast.mp4' }[path.basename(p)[0]];
+      const pick = { s: 'short.mp4', m: 'mid.mp4', f: 'long.mp4', l: 'long.mp4', c: 'long.mp4', n: 'long-nofast.mp4', q: 'short-nofast.mp4' }[path.basename(p)[0]];
       if (pick) file = path.join(MEDIA, pick);
     } else if (p.startsWith('/media/')) file = path.join(MEDIA, p.slice(7));
     if (p === '/ads/preroll.webm') file = path.join(MEDIA, 'preroll.webm');

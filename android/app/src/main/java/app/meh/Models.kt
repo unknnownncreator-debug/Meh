@@ -58,6 +58,8 @@ object Http {
         .readTimeout(10, TimeUnit.SECONDS)
         .callTimeout(12, TimeUnit.SECONDS)
         .followRedirects(true)
+        // One cookie store shared with the video player and the WebViews (see SharedCookies).
+        .cookieJar(SharedCookies)
         .build()
 
     /** Cookies that pre-accept a site's consent or "are you 18?" page (mirrors lib/search.js). */
@@ -76,8 +78,6 @@ object Http {
         .header("User-Agent", DESKTOP_UA)
         .header("Accept", "text/html,application/xhtml+xml,*/*")
         .header("Accept-Language", "en-US,en;q=0.9")
-        // Pre-accepted consent / "are you 18?" pages, per site.
-        .header("Cookie", cookieFor(url))
         .build()
 
     /**

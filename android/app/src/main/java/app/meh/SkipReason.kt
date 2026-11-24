@@ -29,6 +29,17 @@ object SkipReason {
         else -> null
     }
 
+    /**
+     * How long each way of playing gets to start before it counts as failed (ms). Short for the
+     * app's player and Chrome's player — a dead end shows quickly — longer for a site's own page,
+     * which has to load the whole page first.
+     */
+    fun startTimeout(kind: String, mode: String): Long = when {
+        kind == "embed" -> 20_000
+        mode == "page" -> 25_000
+        else -> 12_000
+    }
+
     const val WEB_FAILED = "Chrome's player couldn't play it either"
     const val PAGE_FAILED = "its own page wouldn't play it here"
 

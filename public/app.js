@@ -220,7 +220,7 @@ function play(it) {
   };
   const ended = () => { if (my === token && els.autoplay.checked) playNext(); };
   const started = () => { if (my !== token) return; clearTimeout(watchdog); setOverlay('', false, true); markWatched(it.key); };
-  watchdog = setTimeout(() => fail('it never started (timed out)'), 20000);
+  watchdog = setTimeout(() => fail('it never started (timed out)'), it.kind === 'embed' ? 20000 : 12000);
 
   if (it.kind === 'embed') {
     els.video.hidden = true;

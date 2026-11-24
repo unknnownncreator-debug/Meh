@@ -11,7 +11,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.webkit.CookieManager
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowInsets
@@ -111,6 +110,10 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
     private val embedEnd = Runnable { onEmbedEnded(token) }
 
     private var webUnavailable = false
+    /** Per-site memory of which way of playing works (see SiteModes). */
+    private val siteModes by lazy {
+        SiteModes({ prefs.getString(it, null) }, { k, v -> prefs.edit().apply { if (v == null) remove(k) else putString(k, v) }.apply() })
+    }
     private val prefs by lazy { getSharedPreferences("meh", Context.MODE_PRIVATE) }
     private val watched = LinkedHashSet<String>()
 
@@ -360,7 +363,10 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
         play(v)
     }
 
-    private fun play(v: Video) {
+    private fun play(v0: Video) {
+        // A site whose videos only played via Chrome's player / its own page last time: start there.
+        val remembered = if (v0.kind != "embed" && v0.mode == "exo") siteModes.get(v0.site) else null
+        val v = if (remembered != null) v0.copy(mode = remembered).also { it.score = v0.score; items[it.key] = it } else v0
         stopPlayback()
         val t = token
         current = v.key
@@ -369,7 +375,7 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
         renderQueue()
         scroll.smoothScrollTo(0, 0)
         setOverlay("Loading video…", busy = true)
-        ui.postDelayed(watchdog, if (v.kind == "embed") 20_000 else 20_000)
+        ui.postDelayed(watchdog, SkipReason.startTimeout(v.kind, v.mode))
 
         if (v.kind == "embed" || v.mode != "exo") {
             playerView.visibility = View.GONE
@@ -389,7 +395,8 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
         embedBox.visibility = View.GONE
         // Ask for the video the way the page did: same browser identity, same cookies,
         // same Referer. Many sites refuse video requests that don't match.
-        val cookies = try { CookieManager.getInstance().getCookie(v.src) } catch (e: Exception) { null }
+        // The shared store: includes session cookies the site set while its page was read.
+        val cookies = SharedCookies.header(v.src)
         val ds = DefaultHttpDataSource.Factory()
             .setUserAgent(v.userAgent)
             .setAllowCrossProtocolRedirects(true)
@@ -423,6 +430,7 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
         ui.removeCallbacks(watchdog)
         hideOverlay()
         current?.let { markWatched(it) }
+        current?.let { items[it] }?.let { if (it.kind != "embed") siteModes.started(it.site, it.mode) }
     }
 
     private fun advanceAfterEnd() {
@@ -445,8 +453,11 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
             scope.launch {
                 val hit = Hit(v.pageUrl, v.pageTitle)
                 val fresh = try {
-                    val st = withContext(Dispatchers.IO) { Inspector.staticStage(hit) }
-                    st.videos.ifEmpty { web.inspect(hit, st.probe) }.firstOrNull { !it.blocked }
+                    // Time-boxed: a dead end must not hold up the next attempt.
+                    kotlinx.coroutines.withTimeoutOrNull(15_000) {
+                        val st = withContext(Dispatchers.IO) { Inspector.staticStage(hit) }
+                        st.videos.ifEmpty { web.inspect(hit, st.probe) }.firstOrNull { !it.blocked }
+                    }
                 } catch (e: Exception) { null }
                 if (t != token) return@launch // user moved on meanwhile
                 if (fresh == null) { fallbackOrSkip(key, v, why, code); return@launch }
@@ -464,6 +475,7 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
     /** Before giving up, try Chrome's player, then the site's own page; otherwise skip. */
     private fun fallbackOrSkip(key: String, v: Video?, why: String, code: Int?) {
         val t = token
+        v?.let { if (it.kind != "embed") siteModes.failed(it.site, it.mode) }
         val next = v?.let { SkipReason.nextMode(it.mode, it.kind, it.pageUrl, code) }
         if (v != null && next != null) {
             setOverlay(if (next == "web") "Couldn't play it directly ($why) — trying Chrome's player…" else "Still no luck — opening it on ${v.site}…", busy = true)

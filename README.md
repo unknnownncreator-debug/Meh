@@ -56,6 +56,10 @@ Each video gets up to three tries before it's skipped:
 2. **Chrome's player.** The video plays in a bare Chrome player that presents itself as the video's page. Chrome brings its own decoders (VP9/AV1/… in software where the phone's hardware can't), its own network stack (which bot-protected sites accept), and the page's cookies. HLS uses Chrome's native support, or the bundled hls.js.
 3. **The site's own page.** The original page is opened, its biggest video started and enlarged to fill the screen.
 
+**Shared cookies.** The app's page requests, its video player and its hidden/Chrome browsers share one cookie store, so a session cookie a site sets while its page is read is sent when its video is streamed (many sites only stream to the visitor that loaded the page). "Are you 18?" / consent cookies are pre-set for sites that use them. The desktop version keeps an equivalent jar (`lib/cookies.js`) for its page fetches, length probes, video relay and headless browser.
+
+**Per-site memory.** When a site's videos only play via Chrome's player or the site's own page, the app remembers that and starts there next time (forgotten after a week, when it stops working, or when direct play works again). **Short start limits:** the app's player and Chrome's player get 12 s to start, a site's own page 25 s, so dead ends are noticed quickly.
+
 Copy-protected (DRM) video is skipped straight away; no player can help there. When a video is skipped, the screen says why. `npm run test:players` runs the Android app's fallback players in real Chromium.
 
 ## Ads
