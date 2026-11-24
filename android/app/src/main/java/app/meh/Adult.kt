@@ -16,6 +16,8 @@ object Adult {
         "redgifs\\.com", "rule34video\\.com", "rule34\\.xxx", "rule34\\.us", "paheal\\.net", "paheal-cdn\\.net",
         "xvideos\\.com", "xvideos-cdn\\.com", "xnxx\\.com", "xnxx-cdn\\.com", "pornhub\\.com", "phncdn\\.com",
         "xhamster\\.com", "xhcdn\\.com", "eporner\\.com", "spankbang\\.com", "sb-cd\\.com",
+        "redtube\\.com", "rdtcdn\\.com", "youporn\\.com", "ypncdn\\.com", "porntrex\\.com", "hqporner\\.com",
+        "youjizz\\.com", "4tube\\.com", "tnaflix\\.com", "gelbooru\\.com",
     ).joinToString("|") + ")$", RegexOption.IGNORE_CASE)
 
     fun isAdultSite(url: String?): Boolean = try {

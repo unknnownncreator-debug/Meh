@@ -153,6 +153,14 @@ class Search(
             "xhamster" to Site("xHamster", "https://xhamster.com", { q, p -> "https://xhamster.com/search/${java.net.URLEncoder.encode(q.trim(), "UTF-8").replace("+", "%20")}?page=${p + 1}" }, Regex("^/videos/[\\w-]+-[a-z0-9]+/?$", IC)),
             "eporner" to Site("Eporner", "https://www.eporner.com", { q, p -> "https://www.eporner.com/search/${dashes(q)}/${p + 1}/" }, Regex("^/(?:video-\\w+|hd-porn/\\w+)/[^/?#]+/?$", IC)),
             "spankbang" to Site("SpankBang", "https://spankbang.com", { q, p -> "https://spankbang.com/s/${plus(q)}/${p + 1}/" }, Regex("^/[a-z0-9]+/video/[^/?#]+/?$", IC)),
+            "redtube" to Site("RedTube", "https://www.redtube.com", { q, p -> "https://www.redtube.com/?search=${plus(q)}&page=${p + 1}" }, Regex("^/\\d+/?$")),
+            "youporn" to Site("YouPorn", "https://www.youporn.com", { q, p -> "https://www.youporn.com/search/?query=${plus(q)}&page=${p + 1}" }, Regex("^/watch/\\d+/[^/?#]+/?$", IC)),
+            "porntrex" to Site("PornTrex", "https://www.porntrex.com", { q, p -> "https://www.porntrex.com/search/${dashes(q)}/" + if (p > 0) "${p + 1}/" else "" }, Regex("^/video/\\d+/[^/?#]+/?$", IC)),
+            "hqporner" to Site("HQporner", "https://hqporner.com", { q, p -> "https://hqporner.com/?q=${plus(q)}" + if (p > 0) "&p=${p + 1}" else "" }, Regex("^/hdporn/\\d+-[^/?#]+\\.html$", IC)),
+            "youjizz" to Site("YouJizz", "https://www.youjizz.com", { q, p -> "https://www.youjizz.com/search/${dashes(q)}-${p + 1}.html" }, Regex("^/videos/[^/?#]+-\\d+\\.html$", IC)),
+            "fourtube" to Site("4tube", "https://www.4tube.com", { q, p -> "https://www.4tube.com/search?q=${plus(q)}&p=${p + 1}" }, Regex("^/videos/\\d+/[^/?#]+/?$", IC)),
+            "tnaflix" to Site("TNAFlix", "https://www.tnaflix.com", { q, p -> "https://www.tnaflix.com/search?what=${plus(q)}&page=${p + 1}" }, Regex("^/[\\w-]+/[^/?#]+/video\\d+/?$", IC)),
+            "gelbooru" to Site("Gelbooru", "https://gelbooru.com", { q, p -> "https://gelbooru.com/index.php?page=post&s=list&tags=${plus(booruTags(q, "video"))}&pid=${p * 42}" }, Regex("^/?index\\.php\\?page=post&s=view&id=\\d+$", IC)),
             "rule34us" to Site("Rule34.us", "https://rule34.us", { q, p -> "https://rule34.us/index.php?r=posts/index&q=${plus(booruTags(q, "video"))}&page=$p" }, Regex("^/?index\\.php\\?r=posts/view&id=\\d+$", IC)),
         )
 
