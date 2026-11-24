@@ -11,7 +11,12 @@ import java.net.URI
  * titles or text mark it are dropped. Mirrors lib/util.js on the desktop.
  */
 object Adult {
-    private val HOST = Regex("(^|\\.)(redgifs\\.com|rule34video\\.com|rule34\\.xxx|paheal\\.net|paheal-cdn\\.net)$", RegexOption.IGNORE_CASE)
+    // Includes the sites' own video servers (CDNs), so their streams count as adult too.
+    private val HOST = Regex("(^|\\.)(" + listOf(
+        "redgifs\\.com", "rule34video\\.com", "rule34\\.xxx", "rule34\\.us", "paheal\\.net", "paheal-cdn\\.net",
+        "xvideos\\.com", "xvideos-cdn\\.com", "xnxx\\.com", "xnxx-cdn\\.com", "pornhub\\.com", "phncdn\\.com",
+        "xhamster\\.com", "xhcdn\\.com", "eporner\\.com", "spankbang\\.com", "sb-cd\\.com",
+    ).joinToString("|") + ")$", RegexOption.IGNORE_CASE)
 
     fun isAdultSite(url: String?): Boolean = try {
         url != null && HOST.containsMatchIn(URI(url.trim()).host ?: "")

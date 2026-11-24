@@ -44,12 +44,12 @@ class AdultTest {
 
     @Test fun switchAndFinalGate() {
         val pad = "<!--" + "x".repeat(2500) + "-->"
-        val page = pad + "<li class=\"b_algo\"><h2><a href=\"https://rule34video.com/video/5/dragon/\">Dragon</a></h2></li>" +
-            "<li class=\"b_algo\"><h2><a href=\"https://rule34video.com/video/6/loli-x/\">x</a></h2></li><li class=\"b_algo\"><h2><a href=\"https://news.example.org/v\">n</a></h2></li>"
-        val s = Search({ url -> if ("bing.com/search" in url) page else "" }, null) { _, _ -> 404 to "" }
+        val page = pad + "<div class=\"result\"><a class=\"result__a\" href=\"https://rule34video.com/video/5/dragon/\">Dragon</a></div>" +
+            "<div class=\"result\"><a class=\"result__a\" href=\"https://rule34video.com/video/6/loli-x/\">x</a></div><div class=\"result\"><a class=\"result__a\" href=\"https://news.example.org/v\">n</a></div>"
+        val s = Search({ url -> if ("html.duckduckgo.com" in url) page else "" }, null) { _, _ -> 404 to "" }
         assertEquals(listOf("https://news.example.org/v"), s.searchWeb("dragon", 0).map { it.url })
         assertEquals(listOf("https://rule34video.com/video/5/dragon/", "https://news.example.org/v"),
-            s.searchWeb("dragon", 0, includeRedgifs = true).map { it.url }.filter { "bing" !in it })
+            s.searchWeb("dragon", 0, includeRedgifs = true).map { it.url })
 
         val v = Video("file", "https://r34i.paheal-cdn.net/a.mp4", pageUrl = "https://rule34.paheal.net/post/view/1", title = "Dragon", pageText = "Tags: dragon animated")
         assertFalse(Adult.drop(v, null, true))

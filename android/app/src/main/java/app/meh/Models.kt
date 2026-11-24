@@ -60,13 +60,24 @@ object Http {
         .followRedirects(true)
         .build()
 
+    /** Cookies that pre-accept a site's consent or "are you 18?" page (mirrors lib/search.js). */
+    fun cookieFor(url: String): String {
+        val host = try { java.net.URI(url).host ?: "" } catch (e: Exception) { "" }
+        return when {
+            Regex("(^|\\.)pornhub\\.com$").containsMatchIn(host) -> "accessAgeDisclaimerPH=1; accessAgeDisclaimerUK=1; age_verified=1; platform=pc"
+            Regex("(^|\\.)spankbang\\.com$").containsMatchIn(host) -> "age_pass=1"
+            Regex("(^|\\.)xhamster\\.com$").containsMatchIn(host) -> "x_content_preference_index=straight"
+            else -> "CONSENT=YES+1; SOCS=CAI"
+        }
+    }
+
     fun pageRequest(url: String): Request = Request.Builder()
         .url(url)
         .header("User-Agent", DESKTOP_UA)
         .header("Accept", "text/html,application/xhtml+xml,*/*")
         .header("Accept-Language", "en-US,en;q=0.9")
-        // Skip cookie-consent interstitials (YouTube / Google properties).
-        .header("Cookie", "CONSENT=YES+1; SOCS=CAI")
+        // Pre-accepted consent / "are you 18?" pages, per site.
+        .header("Cookie", cookieFor(url))
         .build()
 
     /**

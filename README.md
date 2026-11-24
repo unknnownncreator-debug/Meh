@@ -34,7 +34,7 @@ Then open **http://localhost:3000**, type something, and press Enter.
  your words ─► 1. SEARCH ─► 2. INSPECT ─► 3. RANK ─► 4. PLAY
 ```
 
-1. **Search** (`lib/search.js`). Reads the public result pages of Google (Videos tab), Bing, Bing Videos and DuckDuckGo in parallel, the same pages you see in a browser. Google only answers browsers that run JavaScript, so its searches always go through the headless browser. Their links are merged round-robin so no single engine or site dominates. If a plain request is blocked, that search page is loaded in the headless browser instead.
+1. **Search** (`lib/search.js`). Reads public search-result pages, the same pages you see in a browser: DuckDuckGo always, and the adult sites below while the **Adult sites (18+)** switch is on. Results are merged round-robin so no single engine or site dominates. If a plain request is blocked, that search page is loaded in the headless browser instead. (Google, Bing and YouTube searches were removed.)
 2. **Inspect** (`lib/inspector.js`). Each result page (up to 40, five at a time) is examined in two stages:
    - **Static HTML.** Reads what the page declares: `og:video` and Twitter player tags, JSON-LD `VideoObject` data, `<video>` and `<source>` tags, and embedded Vimeo or Dailymotion players. This is fast and needs no browser.
    - **Live browser.** If nothing was declared, the page is opened in headless Chromium. The browser scrolls, presses play, and watches the network for video files (`.mp4`, `.webm`) and HLS streams (`.m3u8`). It then reads the live DOM of every frame. This catches players that load their video with JavaScript.
@@ -71,8 +71,9 @@ Players usually request their **pre-roll ad first** and the real video only afte
 
 ## Adult sites (opt-in, 18+)
 
-RedGIFs, rule34video.com, rule34.paheal.net and rule34.xxx sit behind an **Adult sites (18+)** switch (on the results screen; remembered). While it's off, they aren't contacted and their videos found by other engines are hidden.
+XVideos, XNXX, Pornhub, xHamster, Eporner, SpankBang, RedGIFs, rule34video.com, rule34.paheal.net, rule34.xxx and rule34.us sit behind an **Adult sites (18+)** switch (on the results screen; remembered). While it's off, they aren't contacted and their videos found by other engines are hidden.
 
+- **XVideos, XNXX, Pornhub, xHamster, Eporner, SpankBang, rule34.us:** each site's search page is read for links in that site's video-page address format (e.g. `/view_video.php?viewkey=…`), so layout changes don't break it; titles come from the link or the address. Video pages go through normal inspection, which also reads video links that pages set up in their scripts (how these players load their streams). Consent / "are you 18?" pages are pre-accepted with cookies. These sites were added without being able to open them from the development environment, so they're tested against sample pages only; the status line shows each engine's result count.
 - **RedGIFs:** its website loads everything from its data service with a guest token every visitor gets automatically (no account or key — see RedGIFs' [temporary tokens](https://github.com/Redgifs/api/wiki/Temporary-tokens)); the app does the same. RedGIFs pages declare the *silent* copy of each clip, so the app always plays the copy with sound.
 - **rule34video.com:** its search page lists each video with title and length; video pages declare their file in JSON-LD.
 - **rule34.paheal.net:** search results carry each post's file type and tags, so only videos are opened.

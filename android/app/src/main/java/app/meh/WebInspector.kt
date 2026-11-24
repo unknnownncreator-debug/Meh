@@ -93,9 +93,10 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
     init {
         CookieManager.getInstance().apply {
             setAcceptCookie(true)
-            // Pre-accept Google's cookie consent so EU users don't land on a consent wall.
-            setCookie("https://www.google.com", "SOCS=CAI; Domain=.google.com; Path=/")
-            setCookie("https://www.google.com", "CONSENT=YES+1; Domain=.google.com; Path=/")
+            // Pre-accept consent / "are you 18?" pages (same cookies as plain requests send).
+            for ((site, domain) in listOf("https://www.pornhub.com/" to ".pornhub.com", "https://spankbang.com/" to ".spankbang.com", "https://xhamster.com/" to ".xhamster.com")) {
+                for (kv in Http.cookieFor(site).split("; ")) setCookie(site, "$kv; Domain=$domain; Path=/")
+            }
         }
         repeat(size) { pool.trySend(create()) }
     }

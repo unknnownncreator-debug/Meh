@@ -10,8 +10,8 @@ android {
         applicationId = "app.meh"
         minSdk = 26
         targetSdk = 37
-        versionCode = 16
-        versionName = "1.15"
+        versionCode = 17
+        versionName = "1.16"
     }
 
     // A fixed signing key kept in the repo so every build can install over the last one.

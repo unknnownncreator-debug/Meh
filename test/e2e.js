@@ -87,109 +87,98 @@ function readSse(url) {
     assert.equal(cleanHitUrl('https://www.bing.com/images/search?q=x'), null);
   });
 
-  await step('parses search result pages (DuckDuckGo, Bing, Bing Videos)', async () => {
+  await step('parses DuckDuckGo results; Google, Bing and YouTube searches are gone', async () => {
     const realFetch = global.fetch;
     const pad = '<!--' + 'x'.repeat(2500) + '-->';
-    const html = {
-      'html.duckduckgo.com': `${pad}<div class="result results_links"><h2><a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fa.com%2Fvolcano">Volcano <b>video</b></a></h2><a class="result__snippet" href="#">Lava!</a></div>`,
-      'www.bing.com/search': `${pad}<li class="b_algo"><h2><a href="https://b.org/eruption" h="ID=1">Eruption</a></h2><p>Big one</p></li>`,
-      'www.bing.com/videos': `${pad}<div class="vrhdata" vrhm='{&quot;du&quot;:&quot;4:13&quot;,&quot;murl&quot;:&quot;https://c.net/clip/9&quot;,&quot;vt&quot;:&quot;Volcano clip&quot;}'></div>`,
-    };
-    global.fetch = async (url) => {
-      const key = Object.keys(html).find((k) => String(url).includes(k));
-      return new Response(key ? html[key] : '', { status: key ? 200 : 404, headers: { 'content-type': 'text/html' } });
-    };
+    global.fetch = async () => new Response(`${pad}<div class="result results_links"><h2><a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fa.com%2Fvolcano">Volcano <b>video</b></a></h2><a class="result__snippet" href="#">Lava!</a></div>`, { status: 200, headers: { 'content-type': 'text/html' } });
     try {
       const ddg = await ENGINES.duckduckgo('volcano', 0);
       assert.deepEqual([ddg[0].url, ddg[0].title, ddg[0].snippet], ['https://a.com/volcano', 'Volcano video', 'Lava!']);
-      const bing = await ENGINES.bing('volcano', 0);
-      assert.equal(bing[0].url, 'https://b.org/eruption');
-      const bv = await ENGINES.bingVideos('volcano', 0);
-      assert.deepEqual([bv[0].url, bv[0].title, bv[0].duration], ['https://c.net/clip/9', 'Volcano clip', 253]);
-      assert.equal(ENGINES.youtube, undefined, 'YouTube search engine removed');
+      for (const gone of ['google', 'bing', 'bingVideos', 'youtube']) assert.equal(ENGINES[gone], undefined, `${gone} removed`);
+      assert.deepEqual(require('../lib/search').DEFAULT_ENGINES, ['duckduckgo']);
     } finally {
       global.fetch = realFetch;
     }
   });
 
-  await step('parses REAL saved search pages (Bing, Bing Videos, DuckDuckGo bot check)', async () => {
+  await step("DuckDuckGo's real bot-check page falls back to the browser", async () => {
     const zlib = require('zlib');
-    const real = (n) => zlib.gunzipSync(fs.readFileSync(path.join(__dirname, 'fixtures', 'real', n + '.html.gz'))).toString('utf8');
+    const real = zlib.gunzipSync(fs.readFileSync(path.join(__dirname, 'fixtures', 'real', 'ddg.html.gz'))).toString('utf8');
     const realFetch = global.fetch;
-    const map = { 'html.duckduckgo.com': ['ddg', 202], 'www.bing.com/search': ['bing', 200], 'www.bing.com/videos': ['bingv', 200] };
-    global.fetch = async (url) => {
-      const [name, status] = map[Object.keys(map).find((k) => String(url).includes(k))];
-      return new Response(real(name), { status, headers: { 'content-type': 'text/html' } });
-    };
+    global.fetch = async () => new Response(real, { status: 202, headers: { 'content-type': 'text/html' } });
     try {
-      const bing = await ENGINES.bing('volcano', 0);
-      assert.ok(bing.length >= 8 && bing.every((h) => /^https:\/\//.test(h.url) && h.title), `bing ${bing.length}`);
-      const bv = await ENGINES.bingVideos('volcano eruption', 0);
-      assert.ok(bv.length >= 8, `bing videos ${bv.length}`);
-      // DuckDuckGo's bot check (202) must fall back to the real browser, not silently give 0.
       let browserCalls = 0;
       const ddg = await ENGINES.duckduckgo('volcano', 0, async () => { browserCalls++; return ''; });
       assert.equal(ddg.length, 0);
       assert.equal(browserCalls, 1, 'fell back to the browser');
-      const parity = { bing: bing.length, bingVideos: bv.length, bingFirst: bing[0].url, bingVideosFirst: bv[0].url };
-      fs.writeFileSync(path.join(__dirname, 'fixtures', 'real', 'expected.json'), JSON.stringify(parity, null, 2));
     } finally {
       global.fetch = realFetch;
     }
   });
 
-  await step('parses Google video results (modern + legacy markup, bot check, browser retry)', async () => {
-    const { parseGoogle } = require('../lib/search');
-    const modern = `<html><body>
-      <a href="https://www.google.com/search?q=volcano&tbm=isch">Images</a>
-      <a href="https://accounts.google.com/ServiceLogin">Sign in</a>
-      <a href="/search?q=volcano+lava&tbm=vid">volcano lava</a>
-      <a href="https://support.google.com/websearch">Help with search results</a>
-      <div class="g"><a href="https://www.youtube.com/watch?v=abcdefghijk" jsname="UWckNb" data-ved="x"><h3 class="LC20lb">Volcano eruption in 4K</h3><cite>www.youtube.com</cite></a><span>12:34</span></div>
-      <div class="g"><a href="https://www.nationalgeographic.com/video/volcano-101" data-ved="y"><div role="heading" aria-level="3">Volcanoes 101 &amp; how they erupt</div><div>Nat Geo · 3:05</div></a></div>
-      <div class="g"><a href="https://vimeo.com/76979871" aria-label="Lava flow timelapse, from Vimeo"><img src="x.jpg"></a></div>
-      <div class="g"><a href="https://www.youtube.com/watch?v=abcdefghijk"><h3>Volcano eruption in 4K</h3></a></div>
-    </body></html>`;
-    const hits = parseGoogle(modern);
-    assert.deepEqual(hits.map((h) => h.url), ['https://www.youtube.com/watch?v=abcdefghijk', 'https://www.nationalgeographic.com/video/volcano-101', 'https://vimeo.com/76979871']);
-    assert.deepEqual(hits.map((h) => h.title), ['Volcano eruption in 4K', 'Volcanoes 101 & how they erupt', 'Lava flow timelapse, from Vimeo']);
-    assert.equal(hits[1].duration, 185);
-
-    const legacy = '<div><a href="/url?q=https://www.bbc.co.uk/news/av/volcano&amp;sa=U&amp;ved=2ah"><h3><div>Volcano erupts in Iceland - BBC News</div></h3></a>' +
-      '<a href="/url?q=https://maps.google.com/x&amp;sa=U"><h3>Maps result</h3></a></div>';
-    assert.deepEqual(parseGoogle(legacy).map((h) => h.url), ['https://www.bbc.co.uk/news/av/volcano']);
-
-    const zlib = require('zlib');
-    const sorry = zlib.gunzipSync(fs.readFileSync(path.join(__dirname, 'fixtures', 'real', 'google-sorry.html.gz'))).toString('utf8');
-    assert.equal(parseGoogle(sorry).length, 0, 'real Google bot-check page');
-    assert.equal(parseGoogle('<html><form id="captcha-form"></form><a href="https://x.com/v"><h3>Something long enough</h3></a></html>').length, 0);
-
-    // Plain request gets the "enable JavaScript" page → must retry in the browser.
+  await step('adult video sites: search pages read by video-address format', async () => {
+    const { parseSiteLinks, SITES } = require('../lib/search');
+    const page = (links) => `<html><body>${links}<a href="/tags/dragon">Dragon tag</a><a href="https://other.example/video-1/x">elsewhere</a></body></html>`;
+    // XVideos: relative links, a thumbnail anchor and a title anchor per video.
+    let hits = parseSiteLinks('xvideos', page('<a href="/video.okbx123/big_red_dragon_fight"><img alt="Big red dragon fight"></a><a href="/video.okbx123/big_red_dragon_fight" title="Big red dragon fight (HD)">Big red…</a><a href="/video12345/old_style_dragon">Old style dragon</a>'));
+    assert.deepEqual(hits.map((h) => [h.url, h.title]), [['https://www.xvideos.com/video.okbx123/big_red_dragon_fight', 'Big red dragon fight (HD)'], ['https://www.xvideos.com/video12345/old_style_dragon', 'Old style dragon']]);
+    hits = parseSiteLinks('xnxx', page('<a href="/video-1a2b3c/dragon_lair">Dragon lair</a>'));
+    assert.deepEqual(hits.map((h) => h.url), ['https://www.xnxx.com/video-1a2b3c/dragon_lair']);
+    hits = parseSiteLinks('pornhub', page('<a href="/view_video.php?viewkey=ph5f0abc123"><img alt="Dragon night"></a><a href="/view_video.php?viewkey=ph5f0abc123&amp;pkey=1">playlist</a>'));
+    assert.deepEqual(hits.map((h) => [h.url, h.title]), [['https://www.pornhub.com/view_video.php?viewkey=ph5f0abc123', 'Dragon night']]);
+    hits = parseSiteLinks('xhamster', page('<a href="https://xhamster.com/videos/red-dragon-awakens-xh1A2b3">Red dragon awakens</a><a href="https://xhamster.com/videos/teen-dragon-xh9">x</a>'));
+    assert.deepEqual(hits.map((h) => h.url), ['https://xhamster.com/videos/red-dragon-awakens-xh1A2b3'], 'minors-marked title dropped');
+    hits = parseSiteLinks('eporner', page('<a href="/video-AbC123dEf/dragon-fight/"></a><a href="/hd-porn/XyZ987/another-dragon/">Another dragon</a>'));
+    assert.deepEqual(hits.map((h) => [h.url, h.title]), [['https://www.eporner.com/video-AbC123dEf/dragon-fight/', 'dragon fight'], ['https://www.eporner.com/hd-porn/XyZ987/another-dragon/', 'Another dragon']], 'no title → words from the address');
+    hits = parseSiteLinks('spankbang', page('<a href="/8xyz1/video/dragon+fight">Dragon fight</a>'));
+    assert.deepEqual(hits.map((h) => h.url), ['https://spankbang.com/8xyz1/video/dragon+fight']);
+    hits = parseSiteLinks('rule34us', page('<a href="index.php?r=posts/view&amp;id=123"><img alt="dragon animated video"></a>'));
+    assert.deepEqual(hits.map((h) => h.url), ['https://rule34.us/index.php?r=posts/view&id=123']);
+    // Search addresses (and minus-tags on the booru one).
+    assert.equal(SITES.pornhub.search('red dragon', 0), 'https://www.pornhub.com/video/search?search=red+dragon&page=1');
+    assert.equal(SITES.xvideos.search('red dragon', 2), 'https://www.xvideos.com/?k=red+dragon&p=2');
+    assert.equal(SITES.eporner.search('Red Dragon!', 0), 'https://www.eporner.com/search/red-dragon/1/');
+    assert.match(SITES.rule34us.search('dragon', 0), /q=video\+dragon\+-loli\+.*-pmv\+-hmv\+-male_focus\+-yaoi&page=0$/);
+    // Queries asking for minors never reach any adult site.
     const realFetch = global.fetch;
-    global.fetch = async () => new Response('<html><noscript>Please click <a href="/search?q=v&emsg=SG_REL">here</a> if you are not redirected. enablejs</noscript>' + 'x'.repeat(3000) + '</html>', { status: 200, headers: { 'content-type': 'text/html' } });
+    let asked = 0;
+    global.fetch = async () => { asked++; return new Response('', { status: 404 }); };
     try {
-      let calls = 0;
-      const got = await ENGINES.google('volcano', 0, async (url) => { calls++; assert.match(url, /google\.com\/search\?q=volcano&tbm=vid/); return modern; });
-      assert.equal(calls, 1, 'retried in the browser');
-      assert.equal(got.length, 3);
-    } finally {
-      global.fetch = realFetch;
-    }
+      for (const e of require('../lib/search').ADULT_ENGINES) assert.deepEqual(await ENGINES[e]('loli dragon', 0), [], e);
+      assert.equal(asked, 0);
+    } finally { global.fetch = realFetch; }
+    // Every new site (and its video servers) counts as adult.
+    const { isAdultSite } = require('../lib/util');
+    for (const u of ['https://www.xvideos.com/video.x/y', 'https://www.pornhub.com/view_video.php?viewkey=1', 'https://ev.phncdn.com/hls/x.m3u8', 'https://xhamster.com/videos/x-1', 'https://spankbang.com/1/video/x', 'https://rule34.us/index.php', 'https://www.eporner.com/video-1/x/'])
+      assert.ok(isAdultSite(u), u);
+  });
+
+  await step('video links set up by page scripts are found', () => {
+    const insp = require('../lib/inspector');
+    const html = `<html><head><title>Big dragon fight</title></head><body><script>
+      html5player.setVideoUrlHigh('https://cdn.example-cdn.com/videos/mp4/a/b/c.mp4?e=1&h=2');
+      html5player.setVideoHLS('https://hls.example-cdn.com/videos/hls/a/b/hls.m3u8?e=1');
+      var preview = "https:\\/\\/cdn.example.com\\/videopreview\\/x.mp4";
+      var mediaDefinitions = [{"videoUrl":"https:\\/\\/ev.example.com\\/hls\\/master.m3u8?validfrom=1\\u0026ttl=2"}];
+      </script><script src="https://cdn.example.com/player.js"></script></body></html>`;
+    const p = insp.parseStaticHtml(html, 'https://www.example.com/video.abc/x');
+    assert.deepEqual(p.scriptMedia, ['https://cdn.example-cdn.com/videos/mp4/a/b/c.mp4?e=1&h=2', 'https://hls.example-cdn.com/videos/hls/a/b/hls.m3u8?e=1', 'https://ev.example.com/hls/master.m3u8?validfrom=1&ttl=2'], 'escaped links decoded, preview skipped');
+    assert.deepEqual(insp.candidatesFromProbe(p).map((c) => [c.origin, c.kind]), [['script', 'file'], ['script', 'hls'], ['script', 'hls']]);
   });
 
   await step('YouTube and TikTok results are dropped from every engine', async () => {
     const { searchWeb } = require('../lib/search');
     const realFetch = global.fetch;
     const page = '<!--' + 'x'.repeat(2500) + '-->' +
-      '<li class="b_algo"><h2><a href="https://www.youtube.com/watch?v=abcdefghijk">YT</a></h2></li>' +
-      '<li class="b_algo"><h2><a href="https://youtu.be/abcdefghijk">YT short</a></h2></li>' +
-      '<li class="b_algo"><h2><a href="https://m.youtube.com/watch?v=zzzzzzzzzzz">YT mobile</a></h2></li>' +
-      '<li class="b_algo"><h2><a href="https://www.tiktok.com/@nasa/video/7234567890123456789">TikTok</a></h2></li>' +
-      '<li class="b_algo"><h2><a href="https://vm.tiktok.com/ZMabc123/">TikTok short link</a></h2></li>' +
-      '<li class="b_algo"><h2><a href="https://news.example.org/volcano-video">News</a></h2></li>';
+      '<div class="result"><a class="result__a" href="https://www.youtube.com/watch?v=abcdefghijk">YT</a></div>' +
+      '<div class="result"><a class="result__a" href="https://youtu.be/abcdefghijk">YT short</a></div>' +
+      '<div class="result"><a class="result__a" href="https://m.youtube.com/watch?v=zzzzzzzzzzz">YT mobile</a></div>' +
+      '<div class="result"><a class="result__a" href="https://www.tiktok.com/@nasa/video/7234567890123456789">TikTok</a></div>' +
+      '<div class="result"><a class="result__a" href="https://vm.tiktok.com/ZMabc123/">TikTok short link</a></div>' +
+      '<div class="result"><a class="result__a" href="https://news.example.org/volcano-video">News</a></div>';
     global.fetch = async () => new Response(page, { status: 200, headers: { 'content-type': 'text/html' } });
     try {
-      const hits = await searchWeb('volcano', { engines: ['bing'] });
+      const hits = await searchWeb('volcano', { engines: ['duckduckgo'] });
       assert.deepEqual(hits.map((h) => h.url), ['https://news.example.org/volcano-video']);
     } finally {
       global.fetch = realFetch;
@@ -241,10 +230,10 @@ function readSse(url) {
       assert.equal((await ENGINES.redgifs('volcano', 0)).length, 2, 'refused token renewed');
       assert.equal(calls.filter((c) => c.endsWith('/temporary')).length, 2, 'token fetched once, renewed once');
       // Switched off: not searched, and RedGIFs links from other engines are dropped.
-      const page = '<!--' + 'x'.repeat(2500) + '--><li class="b_algo"><h2><a href="https://www.redgifs.com/watch/x">r</a></h2></li><li class="b_algo"><h2><a href="https://news.example.org/v">n</a></h2></li>';
+      const page = '<!--' + 'x'.repeat(2500) + '--><div class="result"><a class="result__a" href="https://www.redgifs.com/watch/x">r</a></div><div class="result"><a class="result__a" href="https://news.example.org/v">n</a></div>';
       global.fetch = async () => new Response(page, { status: 200, headers: { 'content-type': 'text/html' } });
-      assert.deepEqual((await searchWeb('volcano', { engines: ['bing'] })).map((h) => h.url), ['https://news.example.org/v']);
-      assert.equal((await searchWeb('volcano', { engines: ['bing'], includeRedgifs: true })).length, 2);
+      assert.deepEqual((await searchWeb('volcano', { engines: ['duckduckgo'] })).map((h) => h.url), ['https://news.example.org/v']);
+      assert.equal((await searchWeb('volcano', { engines: ['duckduckgo'], includeRedgifs: true })).length, 2);
     } finally {
       global.fetch = realFetch;
     }
@@ -285,11 +274,11 @@ function readSse(url) {
       for (const e of ['redgifs', 'rule34video', 'paheal', 'rule34xxx']) assert.deepEqual(await ENGINES[e]('loli dragon', 0), []);
       assert.equal(asked.length, 0, 'nothing sent to adult sites for such a query');
       // Adult links from general engines: hidden when switched off; minors-marked ones always.
-      const page = '<!--' + 'x'.repeat(2500) + '--><li class="b_algo"><h2><a href="https://rule34video.com/video/5/dragon/">Dragon</a></h2></li>' +
-        '<li class="b_algo"><h2><a href="https://rule34video.com/video/6/loli-x/">x</a></h2></li><li class="b_algo"><h2><a href="https://news.example.org/v">n</a></h2></li>';
+      const page = '<!--' + 'x'.repeat(2500) + '--><div class="result"><a class="result__a" href="https://rule34video.com/video/5/dragon/">Dragon</a></div>' +
+        '<div class="result"><a class="result__a" href="https://rule34video.com/video/6/loli-x/">x</a></div><div class="result"><a class="result__a" href="https://news.example.org/v">n</a></div>';
       global.fetch = async () => new Response(page, { status: 200, headers: { 'content-type': 'text/html' } });
-      assert.deepEqual((await searchWeb('dragon', { engines: ['bing'] })).map((h) => h.url), ['https://news.example.org/v']);
-      assert.deepEqual((await searchWeb('dragon', { engines: ['bing'], includeRedgifs: true })).map((h) => h.url), ['https://rule34video.com/video/5/dragon/', 'https://news.example.org/v']);
+      assert.deepEqual((await searchWeb('dragon', { engines: ['duckduckgo'] })).map((h) => h.url), ['https://news.example.org/v']);
+      assert.deepEqual((await searchWeb('dragon', { engines: ['duckduckgo'], includeRedgifs: true })).map((h) => h.url), ['https://rule34video.com/video/5/dragon/', 'https://news.example.org/v']);
     } finally {
       global.fetch = realFetch;
     }

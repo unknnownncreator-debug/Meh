@@ -38,17 +38,13 @@ class EngineTest {
         val pad = "<!--" + "x".repeat(2500) + "-->"
         val pages = mapOf(
             "html.duckduckgo.com" to """$pad<div class="result results_links"><h2><a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fa.com%2Fvolcano">Volcano <b>video</b></a></h2><a class="result__snippet" href="#">Lava!</a></div>""",
-            "www.bing.com/search" to """$pad<li class="b_algo"><h2><a href="https://b.org/eruption" h="ID=1">Eruption</a></h2><p>Big one</p></li>""",
-            "www.bing.com/videos" to """$pad<div class="vrhdata" vrhm='{&quot;du&quot;:&quot;4:13&quot;,&quot;murl&quot;:&quot;https://c.net/clip/9&quot;,&quot;vt&quot;:&quot;Volcano clip&quot;}'></div>""",
         )
         val s = Search({ url -> pages.entries.firstOrNull { url.contains(it.key) }?.value ?: "" })
         s.duckduckgo("volcano", 0)[0].let { assertEquals(listOf("https://a.com/volcano", "Volcano video", "Lava!"), listOf(it.url, it.title, it.snippet)) }
-        assertEquals("https://b.org/eruption", s.bing("volcano", 0)[0].url)
-        s.bingVideos("volcano", 0)[0].let { assertEquals("https://c.net/clip/9", it.url); assertEquals("Volcano clip", it.title); assertEquals(253.0, it.duration!!, 0.0) }
 
+        // Google and Bing are gone: without the adult switch, DuckDuckGo is the only engine.
         val merged = s.searchWeb("volcano", 0)
-        assertEquals(3, merged.size)
-        assertEquals(setOf("DuckDuckGo", "Bing", "Bing Videos"), merged.map { it.engine }.toSet())
+        assertEquals(setOf("DuckDuckGo"), merged.map { it.engine }.toSet())
     }
 
     private fun inspect(html: String, url: String = "https://site.com/page"): List<Video> {
@@ -91,8 +87,8 @@ class EngineTest {
         // …and YouTube links are dropped from search results.
         val page = "<!--" + "x".repeat(2500) + "-->" + listOf("https://www.youtube.com/watch?v=abcdefghijk", "https://youtu.be/abcdefghijk",
             "https://m.youtube.com/watch?v=zzzzzzzzzzz", "https://www.tiktok.com/@nasa/video/7234567890123456789",
-            "https://vm.tiktok.com/ZMabc123/", "https://news.example.org/volcano-video").joinToString("") { "<li class=\"b_algo\"><h2><a href=\"$it\">r</a></h2></li>" }
-        val s = Search({ url -> if ("bing.com/search" in url) page else "" })
+            "https://vm.tiktok.com/ZMabc123/", "https://news.example.org/volcano-video").joinToString("") { "<div class=\"result\"><a class=\"result__a\" href=\"$it\">r</a></div>" }
+        val s = Search({ url -> if ("html.duckduckgo.com" in url) page else "" })
         assertEquals(listOf("https://news.example.org/volcano-video"), s.searchWeb("volcano", 0).map { it.url })
         assertTrue(Video("embed", "https://www.youtube.com/watch?v=abcdefghijk", provider = "youtube", id = "abcdefghijk").blocked)
         assertTrue(Video("file", "https://rr1---sn-x.googlevideo.com/videoplayback?id=1").blocked)

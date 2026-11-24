@@ -15,6 +15,8 @@ data class Probe(
     val text: String = "",
     /** Read from the live page in a WebView (vs. the raw HTML). */
     val live: Boolean = false,
+    /** Video links the page keeps inside its scripts. */
+    val scriptMedia: List<String> = emptyList(),
 )
 
 data class ProbeVideo(
@@ -139,6 +141,19 @@ object Inspector {
         return sb.toString()
     }
 
+    private val SCRIPT_MEDIA = Regex("https?://[^\"'\\s<>()\\\\]+?\\.(?:m3u8|mp4)\\b[^\"'\\s<>()\\\\]*", IC)
+    private val PREVIEWISH = Regex("/(?:previews?|thumbs?|thumbnails?|trailers?|samples?|teasers?|videopreview)[/._-]", IC)
+
+    /**
+     * Video links that a page keeps inside its scripts (players set up by code: XVideos' setVideoHLS,
+     * Pornhub's mediaDefinitions, xHamster's initials, SpankBang's stream data, KVS flashvars…).
+     * Escaped slashes are undone first; previews/thumbnails/trailers are skipped.
+     */
+    fun scriptMediaUrls(js: String): List<String> {
+        val text = js.take(1_000_000).replace("\\/", "/").replace(Regex("\\\\u0026", IC), "&").replace(Regex("\\\\u002f", IC), "/")
+        return SCRIPT_MEDIA.findAll(text).map { it.value }.filter { !PREVIEWISH.containsMatchIn(it) }.distinct().take(20).toList()
+    }
+
     private fun px(v: String?): Double? =
         if (v != null && Regex("^\\s*\\d+(\\.\\d+)?(px)?\\s*$", IC).matches(v)) v.trim().removeSuffix("px").toDoubleOrNull()?.takeIf { it > 0 } else null
 
@@ -158,7 +173,10 @@ object Inspector {
             val v = attr(t.tag, "content")
             if (key.isNotEmpty() && !v.isNullOrEmpty() && key !in metas) metas[key] = v
         }
-        val ld = scanTags(html, lower, "script", 2_000_000)
+        val scripts = scanTags(html, lower, "script", 2_000_000)
+        val scriptMedia = scripts.filter { it.inner.isNotEmpty() && !Regex("\\bsrc\\s*=", IC).containsMatchIn(it.attrs) && !Regex("ld\\+json", IC).containsMatchIn(it.attrs) }
+            .flatMap { scriptMediaUrls(it.inner) }.distinct().take(20)
+        val ld = scripts
             .filter { Regex("type\\s*=\\s*[\"']?application/ld\\+json", IC).containsMatchIn(it.attrs) && it.inner.isNotEmpty() }
             .take(30).map { it.inner }
         val videos = scanTags(html, lower, "video", 20_000, 300).map { t ->
@@ -171,7 +189,7 @@ object Inspector {
         val bodyAt = lower.indexOf("<body")
         val body = (if (bodyAt >= 0) html.substring(bodyAt) else html).let { if (it.length > 600_000) it.substring(0, 600_000) else it }
         val text = stripTags(stripBlocks(body, body.lowercase())).take(3000)
-        return Probe(baseUrl, title, metas, ld, videos, iframes, text)
+        return Probe(baseUrl, title, metas, ld, videos, iframes, text, scriptMedia = scriptMedia)
     }
 
     /** Parse the JSON produced by [WebInspector.PROBE_JS] in a live page. */
@@ -270,6 +288,8 @@ object Inspector {
                 candidateFromUrl(src, base, if (p.live) "live" else "dom", base, type, thumbnail = absolute(v.poster, base), duration = v.duration, tooSmall = small, ad = v.ad)?.let { out += it }
             }
         }
+        // Video links set up by the page's scripts
+        for (src in p.scriptMedia) candidateFromUrl(src, base, "script", base)?.let { out += it }
         for (src in p.iframes) embedFromUrl(src)?.let { out += Candidate("embed", src, "iframe", base, it.provider, it.id) }
         return out
     }
@@ -277,7 +297,7 @@ object Inspector {
     private fun scoreCandidate(c: Candidate): Int {
         if (c.duration != null && c.duration < minDuration(c)) return -1
         if (c.tooSmall || c.ad) return -1
-        var s = when (c.origin) { "page" -> 60; "jsonld" -> 50; "og" -> 45; "dom", "live" -> 40; "network" -> 35; "iframe" -> 30; else -> 20 }
+        var s = when (c.origin) { "page" -> 60; "jsonld" -> 50; "og" -> 45; "dom", "live" -> 40; "script" -> 38; "network" -> 35; "iframe" -> 30; else -> 20 }
         // Players load the ad first and the real video after it: later network requests win ties.
         if (c.origin == "network" && c.seq > 0) s += minOf(c.seq, 4)
         if (c.kind == "hls") s += 4

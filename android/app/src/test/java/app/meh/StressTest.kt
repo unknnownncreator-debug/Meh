@@ -90,46 +90,6 @@ class StressTest {
 
     // ------------------------------------------------------------ real pages
 
-    @Test fun realSearchPagesMatchDesktopParser() {
-        val expected = org.json.JSONObject(File(REAL, "expected.json").readText())
-        val pages = mapOf("www.bing.com/search" to "bing", "www.bing.com/videos" to "bingv")
-        val s = Search({ url -> pages.entries.firstOrNull { url.contains(it.key) }?.let { real(it.value) } ?: "" })
-        val bing = s.bing("volcano", 0)
-        val bv = s.bingVideos("volcano eruption", 0)
-        assertEquals("bing", expected.getInt("bing"), bing.size)
-        assertEquals("bing videos", expected.getInt("bingVideos"), bv.size)
-        assertEquals(expected.getString("bingFirst"), bing[0].url)
-        assertEquals(expected.getString("bingVideosFirst"), bv[0].url)
-    }
-
-    @Test fun googleResultsBotCheckAndBrowserRetry() {
-        val modern = """<html><body>
-          <a href="https://www.google.com/search?q=volcano&tbm=isch">Images</a>
-          <a href="https://accounts.google.com/ServiceLogin">Sign in</a>
-          <a href="/search?q=volcano+lava&tbm=vid">volcano lava</a>
-          <a href="https://support.google.com/websearch">Help with search results</a>
-          <div class="g"><a href="https://www.youtube.com/watch?v=abcdefghijk" jsname="UWckNb"><h3 class="LC20lb">Volcano eruption in 4K</h3><cite>www.youtube.com</cite></a></div>
-          <div class="g"><a href="https://www.nationalgeographic.com/video/volcano-101"><div role="heading" aria-level="3">Volcanoes 101 &amp; how they erupt</div><div>Nat Geo · 3:05</div></a></div>
-          <div class="g"><a href="https://vimeo.com/76979871" aria-label="Lava flow timelapse, from Vimeo"><img src="x.jpg"></a></div>
-          <div class="g"><a href="https://www.youtube.com/watch?v=abcdefghijk"><h3>Volcano eruption in 4K</h3></a></div>
-        </body></html>"""
-        val hits = Search.parseGoogle(modern)
-        assertEquals(listOf("https://www.youtube.com/watch?v=abcdefghijk", "https://www.nationalgeographic.com/video/volcano-101", "https://vimeo.com/76979871"), hits.map { it.url })
-        assertEquals(listOf("Volcano eruption in 4K", "Volcanoes 101 & how they erupt", "Lava flow timelapse, from Vimeo"), hits.map { it.title })
-        assertEquals(185.0, hits[1].duration!!, 0.0)
-
-        val legacy = "<div><a href=\"/url?q=https://www.bbc.co.uk/news/av/volcano&amp;sa=U&amp;ved=2ah\"><h3><div>Volcano erupts in Iceland - BBC News</div></h3></a>" +
-            "<a href=\"/url?q=https://maps.google.com/x&amp;sa=U\"><h3>Maps result</h3></a></div>"
-        assertEquals(listOf("https://www.bbc.co.uk/news/av/volcano"), Search.parseGoogle(legacy).map { it.url })
-
-        assertEquals("real Google bot-check page", 0, Search.parseGoogle(real("google-sorry")).size)
-
-        var calls = 0
-        val s = Search({ "<html><noscript>enablejs</noscript>" + "x".repeat(3000) + "</html>" }, { url -> calls++; assertTrue(url.contains("google.com/search?q=volcano&tbm=vid")); modern })
-        assertEquals(3, s.google("volcano", 0).size)
-        assertEquals("retried in the browser", 1, calls)
-    }
-
     @Test fun duckDuckGoBotCheckFallsBackToBrowser() {
         var browserCalls = 0
         val s = Search({ Http.getHtml("$base/challenge") }, { browserCalls++; "" })
@@ -167,7 +127,7 @@ class StressTest {
             "{\"@type\":\"VideoObject\",\"contentUrl\":", "[", "]", "{", "}", "&amp;", "&#x1F30B;", "&#99999999;",
             "<iframe src=\"https://www.youtube.com/embed/", "dQw4w9WgXcQ", "\"></iframe>", "<title>", "</title>", "volcano",
             "\u0000", "￿", "é", "🌋", " ", "\n", "<body>", "PT1H", "https://", "blob:", "\"videoRenderer\":{\"videoId\":\"",
-            "\"murl\":\"", "\\", "\\\"", "<li class=\"b_algo\"><h2><a href=\"", "result__a", "%", "%%", "http://[::1", "//")
+            "\"murl\":\"", "\\", "\\\"", "<a href=\"/view_video.php?viewkey=", "<a href=\"/video-ab12/", "result__a", "%", "%%", "http://[::1", "//")
         val rnd = Random(42)
         fun junk(n: Int) = buildString { while (length < n) append(pieces[rnd.nextInt(pieces.size)]) }
         repeat(3000) { i ->
@@ -180,7 +140,7 @@ class StressTest {
             Search.cleanHitUrl(junk(80)); embedFromUrl(junk(60)); parseDuration(junk(10)); absolute(junk(40), "https://x.test/")
             if (i % 20 == 0) {
                 val s = Search({ page })
-                s.duckduckgo("v", 0); s.bing("v", 0); s.bingVideos("v", 0); s.google("v", 0)
+                s.duckduckgo("v", 0); Search.SITES.keys.forEach { Search.parseSiteLinks(it, page) }
             }
         }
     }

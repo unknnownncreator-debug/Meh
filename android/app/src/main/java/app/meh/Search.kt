@@ -46,45 +46,6 @@ class Search(
         }
     }
 
-    fun bing(query: String, page: Int): List<Hit> {
-        return fetchHits("https://www.bing.com/search?q=${enc("$query video")}&count=30&first=${page * 30 + 1}") { html ->
-        val hits = mutableListOf<Hit>()
-        for (b in html.split(Regex("<li[^>]+class=\"b_algo\"", RegexOption.IGNORE_CASE)).drop(1)) {
-            val a = Regex("<h2[^>]*>\\s*<a[^>]+href=\"([^\"]+)\"[^>]*>([\\s\\S]*?)</a>", RegexOption.IGNORE_CASE).find(b) ?: continue
-            val target = cleanHitUrl(a.groupValues[1]) ?: continue
-            val sn = Regex("<p[^>]*>([\\s\\S]*?)</p>", RegexOption.IGNORE_CASE).find(b)
-            hits += Hit(target, stripTags(a.groupValues[2]), sn?.let { stripTags(it.groupValues[1]) } ?: "")
-        }
-        hits
-        }
-    }
-
-    /** Bing Videos indexes video pages from all over the web. */
-    fun bingVideos(query: String, page: Int): List<Hit> {
-        return fetchHits("https://www.bing.com/videos/search?q=${enc(query)}&first=${page * 35 + 1}") { raw ->
-        val html = decodeEntities(raw).replace(Regex("\\\\u002f", RegexOption.IGNORE_CASE), "/").replace("\\/", "/")
-        val hits = mutableListOf<Hit>()
-        val seen = HashSet<String>()
-        for (m in Regex("\"murl\"\\s*:\\s*\"([^\"]+)\"").findAll(html)) {
-            val target = cleanHitUrl(m.groupValues[1]) ?: continue
-            if (!seen.add(target)) continue
-            val ctx = html.substring(maxOf(0, m.range.first - 1500), minOf(html.length, m.range.last + 1500))
-            val vt = Regex("\"vt\"\\s*:\\s*\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"").find(ctx)?.groupValues?.get(1)
-            val du = Regex("\"du\"\\s*:\\s*\"([\\d:]+)\"").find(ctx)?.groupValues?.get(1)
-            hits += Hit(target, vt?.let { stripTags(it) } ?: "", "", parseDuration(du))
-        }
-        hits
-        }
-    }
-
-    /**
-     * Google's Videos tab: video pages from all over the web. Google only serves results
-     * to browsers that run JavaScript, so the plain request parses to nothing and
-     * [fetchHits] retries in the WebView.
-     */
-    fun google(query: String, page: Int): List<Hit> =
-        fetchHits("https://www.google.com/search?q=${enc(query)}&tbm=vid&hl=en&num=20" + if (page > 0) "&start=${page * 20}" else "", ::parseGoogle)
-
     /** Run every engine in parallel and merge round-robin so no engine dominates. */
     // ---------- RedGIFs (opt-in, 18+) ----------
     // RedGIFs' website is a JavaScript app that loads everything from its data service with a
@@ -138,10 +99,17 @@ class Search(
         return fetchHits("https://rule34.xxx/index.php?page=post&s=list&tags=${enc(booruTags(query, "video"))}&pid=${page * 42}", ::parseRule34xxx)
     }
 
+    /** An adult video site: its search page is read for links in its video-page address format. */
+    fun site(key: String, query: String, page: Int): List<Hit> {
+        if (Adult.depictsMinors(query)) return emptyList() // never search adult sites for that
+        val cfg = SITES.getValue(key)
+        return fetchHits(cfg.search(query, page)) { html -> parseSiteLinks(key, html) }
+    }
+
     fun searchWeb(query: String, page: Int, includeRedgifs: Boolean = false, onEngine: (String, Int) -> Unit = { _, _ -> }): List<Hit> {
-        val engines: List<Pair<String, (String, Int) -> List<Hit>>> = listOf(
-            "Google" to ::google, "Bing" to ::bing, "Bing Videos" to ::bingVideos, "DuckDuckGo" to ::duckduckgo,
-        ) + (if (includeRedgifs) listOf("RedGIFs" to ::redgifs, "Rule34Video" to ::rule34video, "Rule34 paheal" to ::paheal, "Rule34.xxx" to ::rule34xxx) else emptyList())
+        val adult: List<Pair<String, (String, Int) -> List<Hit>>> = SITES.map { (key, cfg) -> cfg.label to { q: String, p: Int -> site(key, q, p) } } +
+            listOf("RedGIFs" to ::redgifs, "Rule34Video" to ::rule34video, "Rule34 paheal" to ::paheal, "Rule34.xxx" to ::rule34xxx)
+        val engines: List<Pair<String, (String, Int) -> List<Hit>>> = listOf("DuckDuckGo" to ::duckduckgo) + (if (includeRedgifs) adult else emptyList())
         val results = arrayOfNulls<List<Hit>>(engines.size)
         val threads = engines.mapIndexed { i, (name, fn) ->
             Thread {
@@ -168,6 +136,55 @@ class Search(
     }
 
     companion object {
+        // ---------- adult video sites (opt-in, 18+) ----------
+        // Each site's search page is read for links in that site's video-page address format; titles
+        // come from the link (title attribute, image alt, text) or else the address's slug. The video
+        // pages go through normal page inspection. Mirrors SITES in lib/search.js.
+        class Site(val label: String, val base: String, val search: (String, Int) -> String, val video: Regex)
+
+        private fun plus(q: String) = java.net.URLEncoder.encode(q.trim(), "UTF-8")
+        private fun dashes(q: String) = q.trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+        private val IC = RegexOption.IGNORE_CASE
+
+        val SITES: Map<String, Site> = linkedMapOf(
+            "xvideos" to Site("XVideos", "https://www.xvideos.com", { q, p -> "https://www.xvideos.com/?k=${plus(q)}" + if (p > 0) "&p=$p" else "" }, Regex("^/video[.\\d][\\w.]*/[^/?#]+/?$", IC)),
+            "xnxx" to Site("XNXX", "https://www.xnxx.com", { q, p -> "https://www.xnxx.com/search/${plus(q)}" + if (p > 0) "/$p" else "" }, Regex("^/video-[a-z0-9]+/[^/?#]+/?$", IC)),
+            "pornhub" to Site("Pornhub", "https://www.pornhub.com", { q, p -> "https://www.pornhub.com/video/search?search=${plus(q)}&page=${p + 1}" }, Regex("^/view_video\\.php\\?viewkey=\\w+$", IC)),
+            "xhamster" to Site("xHamster", "https://xhamster.com", { q, p -> "https://xhamster.com/search/${java.net.URLEncoder.encode(q.trim(), "UTF-8").replace("+", "%20")}?page=${p + 1}" }, Regex("^/videos/[\\w-]+-[a-z0-9]+/?$", IC)),
+            "eporner" to Site("Eporner", "https://www.eporner.com", { q, p -> "https://www.eporner.com/search/${dashes(q)}/${p + 1}/" }, Regex("^/(?:video-\\w+|hd-porn/\\w+)/[^/?#]+/?$", IC)),
+            "spankbang" to Site("SpankBang", "https://spankbang.com", { q, p -> "https://spankbang.com/s/${plus(q)}/${p + 1}/" }, Regex("^/[a-z0-9]+/video/[^/?#]+/?$", IC)),
+            "rule34us" to Site("Rule34.us", "https://rule34.us", { q, p -> "https://rule34.us/index.php?r=posts/index&q=${plus(booruTags(q, "video"))}&page=$p" }, Regex("^/?index\\.php\\?r=posts/view&id=\\d+$", IC)),
+        )
+
+        private val ANCHOR = Regex("<a\\b([^>]{0,2000})>([\\s\\S]{0,3000}?)</a>", IC)
+
+        /** Video-page links on a site's search page, in page order, with the best title seen for each. */
+        fun parseSiteLinks(key: String, html: String): List<Hit> {
+            val cfg = SITES.getValue(key)
+            val host = URI(cfg.base).host.removePrefix("www.")
+            val byUrl = LinkedHashMap<String, String>()
+            for (m in ANCHOR.findAll(html)) {
+                val href = Regex("\\bhref\\s*=\\s*[\"']([^\"']+)[\"']", IC).find(m.groupValues[1])?.groupValues?.get(1) ?: continue
+                val u = try { URI(cfg.base + "/").resolve(decodeEntities(href).replace(" ", "%20")) } catch (e: Exception) { continue }
+                if ((u.host ?: "").removePrefix("www.").removePrefix("m.") != host) continue
+                val rel = (u.rawPath ?: "") + (u.rawQuery?.let { "?$it" } ?: "")
+                if (!cfg.video.matches(rel)) continue
+                val url = cfg.base + rel
+                val title = (Regex("\\btitle\\s*=\\s*[\"']([^\"']{3,300})[\"']", IC).find(m.groupValues[1])?.groupValues?.get(1)?.let(::decodeEntities))
+                    ?: Regex("<img[^>]+alt\\s*=\\s*[\"']([^\"']{3,300})[\"']", IC).find(m.groupValues[2])?.groupValues?.get(1)?.let(::decodeEntities)
+                    ?: stripTags(m.groupValues[2]).take(200)
+                val usable = Regex("\\w{3}").containsMatchIn(title)
+                val prev = byUrl[url]
+                if (prev == null) byUrl[url] = if (usable) title else ""
+                else if (usable && title.length > prev.length) byUrl[url] = title
+            }
+            return byUrl.map { (url, t) ->
+                // No usable title on the search page: words from the address (".../big-red-dragon").
+                val title = t.ifEmpty { decodeUrl(URI(url).rawPath.split('/').lastOrNull { it.isNotEmpty() } ?: "").replace(Regex("[-_]+"), " ").replace(Regex("\\.\\w+$"), "") }
+                Hit(url, title)
+            }.filter { !Adult.depictsMinors("${it.title} ${it.url}") }.take(40)
+        }
+
         /** Words of a free-text query as booru tags, plus the minors minus-tags. */
         fun booruTags(query: String, extra: String): String {
             val words = query.lowercase().split(Regex("\\s+")).map { it.replace(Regex("[^a-z0-9_'.:-]"), "") }.filter { it.isNotEmpty() }.take(5)
@@ -232,35 +249,6 @@ class Search(
             return hits
         }
 
-        private val GOOGLE_OWN = Regex("(^|\\.)(google\\.[a-z.]+|gstatic\\.com|googleusercontent\\.com|googleadservices\\.com|googlesyndication\\.com|doubleclick\\.net)$", RegexOption.IGNORE_CASE)
-        private val ANCHOR = Regex("<a\\b([^>]{0,3000})>([\\s\\S]{0,6000}?)</a>", RegexOption.IGNORE_CASE)
-
-        /** Read Google results by page structure (links leaving Google that carry a heading or label), not class names. */
-        fun parseGoogle(html: String): List<Hit> {
-            if (Regex("/sorry/index|unusual traffic from your computer|id=\"captcha-form\"", RegexOption.IGNORE_CASE).containsMatchIn(html)) return emptyList()
-            val hits = mutableListOf<Hit>()
-            val seen = HashSet<String>()
-            for (m in ANCHOR.findAll(html)) {
-                if (hits.size >= 40) break
-                var href = Regex("\\bhref\\s*=\\s*\"([^\"]+)\"", RegexOption.IGNORE_CASE).find(m.groupValues[1])?.groupValues?.get(1)?.let(::decodeEntities) ?: continue
-                if (href.startsWith("/url?")) href = "https://www.google.com$href"
-                if (!href.startsWith("http://") && !href.startsWith("https://")) continue
-                val host = try { URI(href).host ?: continue } catch (e: Exception) { continue }
-                val target = (if (GOOGLE_OWN.containsMatchIn(host) && "/url?" !in href) null else cleanHitUrl(href)) ?: continue
-                if (target in seen) continue
-                val inner = m.groupValues[2]
-                val heading = Regex("<h3\\b[^>]*>([\\s\\S]*?)</h3>", RegexOption.IGNORE_CASE).find(inner)?.groupValues?.get(1)
-                    ?: Regex("role=\"heading\"[^>]*>([\\s\\S]{0,600}?)</div>", RegexOption.IGNORE_CASE).find(inner)?.groupValues?.get(1)
-                val aria = Regex("\\baria-label\\s*=\\s*\"([^\"]{5,300})\"", RegexOption.IGNORE_CASE).find(m.groupValues[1])?.groupValues?.get(1)
-                var title = heading?.let(::stripTags) ?: aria?.let(::decodeEntities) ?: ""
-                if (title.isEmpty()) stripTags(inner).let { if (it.length in 12..200) title = it }
-                if (title.length < 5) continue
-                val dur = Regex("\\b(\\d{1,2}:\\d{2}(?::\\d{2})?)\\b").find(stripTags(inner))?.groupValues?.get(1)
-                seen += target
-                hits += Hit(target, title, "", parseDuration(dur))
-            }
-            return hits
-        }
 
         private val ENGINE_DOMAINS = Regex("(^|\\.)(duckduckgo\\.com|bing\\.com|bing\\.net|microsoft\\.com|live\\.com|google\\.[a-z.]+|gstatic\\.com|googleapis\\.com|w3\\.org|schema\\.org|ytimg\\.com)$", RegexOption.IGNORE_CASE)
         private val JUNK_PATH = Regex("\\.(js|css|png|jpe?g|gif|svg|ico|webp|woff2?|pdf|xml|json)$", RegexOption.IGNORE_CASE)
