@@ -37,6 +37,33 @@ object Ranker {
         return (Math.round(s.coerceIn(0.0, 100.0) * 10) / 10.0)
     }
 
+    /**
+     * Strict matching: does this video really match what was typed?
+     *  - every query word must appear in the video's title, its page's title, its description, its
+     *    keywords/tags, or its page address — NOT the rest of the page's text (that's where unrelated
+     *    matches come from). [extra] adds text that counts (an adult site's tag list);
+     *  - searches of 4+ words may miss one word;
+     *  - "quoted phrases" must appear exactly.
+     * Word forms count ("volcano" ~ "volcanoes"), different words don't ("dragon" ≠ "dragonball").
+     */
+    fun matches(query: String, v: Video, hit: Hit? = null, extra: String = ""): Boolean {
+        val phrases = Regex("\"([^\"]+)\"").findAll(query).map { norm(it.groupValues[1]) }.filter { it.isNotBlank() }.toList()
+        val words = tokens(query.replace("\"", " ")).map(::stem).distinct()
+        if (words.isEmpty() && phrases.isEmpty()) return true
+        val slug = try { decodeUrl(java.net.URI(v.pageUrl).rawPath ?: "") } catch (e: Exception) { "" }
+        val text = listOf(v.title, v.pageTitle, v.description, v.keywords, hit?.title, hit?.snippet, slug, extra).filterNotNull().joinToString(" \n ")
+        val toks = tokens(text).map(::stem)
+        val set = toks.toHashSet()
+        fun close(a: String, b: String) = a.length > 3 && b.length > 3 && kotlin.math.abs(a.length - b.length) <= 3 && (a.startsWith(b) || b.startsWith(a))
+        val missing = words.count { q -> q !in set && toks.none { close(it, q) } }
+        if (missing > (if (words.size >= 4) 1 else 0)) return false
+        val n = norm(text)
+        return phrases.all { n.contains(it) }
+    }
+
+    private fun norm(s: String) =
+        " " + Normalizer.normalize(s, Normalizer.Form.NFKD).replace(Regex("[\\u0300-\\u036f]"), "").lowercase().replace(Regex("[^a-z0-9]+"), " ").trim() + " "
+
     /** Highest score first, spreading sites out so one domain can't take over the queue. */
     fun order(list: List<Video>): List<Video> {
         val remaining = list.sortedByDescending { it.score }.toMutableList()

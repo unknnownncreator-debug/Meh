@@ -137,7 +137,9 @@ function loadPage(page) {
     const n = session.items.size;
     const sites = new Set([...session.items.values()].map((i) => i.site)).size;
     session.adsBlocked = (session.adsBlocked || 0) + ((d && d.adsBlocked) || 0);
-    const ads = session.adsBlocked ? ` · ${session.adsBlocked} ad${session.adsBlocked === 1 ? '' : 's'} blocked` : '';
+    session.unrelated = (session.unrelated || 0) + ((d && d.unrelated) || 0);
+    const ads = (session.adsBlocked ? ` · ${session.adsBlocked} ad${session.adsBlocked === 1 ? '' : 's'} blocked` : '') +
+      (session.unrelated ? ` · ${session.unrelated} unrelated hidden` : '');
     setStatus((n ? `Found ${n} video${n === 1 ? '' : 's'} across ${sites} site${sites === 1 ? '' : 's'}` : 'No playable videos found') + ads, true);
     if (!session.current) {
       if (n && upcoming().length) playNext();

@@ -22,7 +22,7 @@ class Engine(private val scope: CoroutineScope, private val web: WebInspector) {
     interface Listener {
         fun onStatus(message: String)
         fun onVideo(video: Video)
-        fun onDone(found: Int, hasMore: Boolean)
+        fun onDone(found: Int, hasMore: Boolean, unrelated: Int)
     }
 
     private var job: Job? = null
@@ -36,10 +36,16 @@ class Engine(private val scope: CoroutineScope, private val web: WebInspector) {
         cancel()
         job = scope.launch {
             var found = 0
+            var unrelated = 0
             val emit: suspend (Video, Hit) -> Unit = emit@{ v, hit ->
                 if (v.blocked) return@emit // excluded sites (YouTube, TikTok)
                 // Adult sites switched off, or content depicting minors (always excluded).
                 if (Adult.drop(v, hit, includeRedgifs)) return@emit
+                val adult = Adult.isAdultSite(v.pageUrl) || Adult.isAdultSite(v.src)
+                // Music videos / HMV / PMV everywhere, male-focus content on adult sites (tags, titles…).
+                if (Adult.unwanted(listOf(v.title, v.pageTitle, v.description, v.keywords, hit.title, hit.snippet, v.pageUrl, if (adult) v.pageText else "").joinToString(" "), adult) != null) { unrelated++; return@emit }
+                // Strict matching: every word you typed must be in its title, description or tags.
+                if (!Ranker.matches(query, v, hit, if (adult) v.pageText else "")) { unrelated++; return@emit }
                 v.score = Ranker.score(query, v, hit.rank)
                 found++
                 withContext(Dispatchers.Main) { listener.onVideo(v) }
@@ -51,7 +57,7 @@ class Engine(private val scope: CoroutineScope, private val web: WebInspector) {
             val queue = hits.take(MAX_PAGES)
             if (queue.isEmpty()) {
                 listener.onStatus("No search results — the search engines may be blocking requests. Try again in a moment.")
-                listener.onDone(0, false)
+                listener.onDone(0, false, 0)
                 return@launch
             }
             val toInspect = queue
@@ -73,7 +79,7 @@ class Engine(private val scope: CoroutineScope, private val web: WebInspector) {
                     listener.onStatus("Inspected $done/${toInspect.size} pages · $found videos found")
                 }
             }.awaitAll()
-            listener.onDone(found, page < 10)
+            listener.onDone(found, page < 10, unrelated)
         }
     }
 

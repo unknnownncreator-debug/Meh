@@ -29,6 +29,8 @@ data class Video(
     val pageUrl: String = "",
     val pageTitle: String = "",
     val pageText: String = "",
+    /** The page's keywords / tag metadata (counts for strict matching). */
+    val keywords: String = "",
     val via: String = "",
     var score: Double = 0.0,
     /** Browser identity the video was found with; some sites tie their video links to it. */

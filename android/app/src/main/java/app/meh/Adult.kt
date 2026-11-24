@@ -33,6 +33,25 @@ object Adult {
         return t.split(Regex("[^a-z0-9]+")).any { it in AGE_TERMS }
     }
 
+    // ---- unwanted content (not a setting): music videos — incl. HMV/PMV/AMV — everywhere,
+    // male-focus content on adult sites. Matched against titles, descriptions and tags.
+    private val MUSIC_WORDS = setOf("hmv", "pmv", "amv", "hmvs", "pmvs", "amvs", "musicvideo", "musicvideos")
+    private val MUSIC_PHRASES = Regex("\\b(music[\\s_-]?videos?|official[\\s_-]?(music[\\s_-]?)?(video|mv|audio|clip)|lyrics?[\\s_-]?videos?|visuali[sz]er|official[\\s_-]?lyric)\\b", RegexOption.IGNORE_CASE)
+    private val MALE_WORDS = setOf("yaoi", "gay", "bara", "malefocus", "maleonly", "solomale", "malesolo", "allmale")
+    private val MALE_PHRASES = Regex("\\b(male[\\s_-]?focus|males?[\\s_-]?only|solo[\\s_-]?male|male[\\s_-]?solo|all[\\s_-]?males?|gay[\\s_-]?(sex|porn|couple)|male[\\s_-]?masturbation|man[\\s_-]?on[\\s_-]?man)\\b", RegexOption.IGNORE_CASE)
+
+    /** Extra booru minus-tags for unwanted content; the rest is filtered after. */
+    val UNWANTED_NEGATIVE_TAGS = listOf("pmv", "hmv", "male_focus", "yaoi")
+
+    /** Why this text is unwanted ("music video" / "male focus"), or null. Male focus only counts for adult sites. */
+    fun unwanted(text: String?, adult: Boolean): String? {
+        val t = (text ?: "").lowercase()
+        val words = t.split(Regex("[^a-z0-9]+"))
+        if (MUSIC_PHRASES.containsMatchIn(t) || words.any { it in MUSIC_WORDS }) return "music video"
+        if (adult && (MALE_PHRASES.containsMatchIn(t) || words.any { it in MALE_WORDS })) return "male focus"
+        return null
+    }
+
     /** Final gate for a found video: drop adult-site videos while switched off, and any marked as depicting minors. */
     fun drop(v: Video, hit: Hit?, includeAdult: Boolean): Boolean {
         if (!isAdultSite(v.pageUrl) && !isAdultSite(v.src)) return false

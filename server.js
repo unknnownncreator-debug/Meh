@@ -7,9 +7,9 @@ const fs = require('fs');
 const path = require('path');
 const { searchWeb, DEFAULT_ENGINES, ADULT_ENGINES } = require('./lib/search');
 const { inspectPage, browserFetch, shutdown } = require('./lib/inspector');
-const { scoreItem } = require('./lib/ranker');
+const { scoreItem, matchesQuery } = require('./lib/ranker');
 const { handleProxy, proxyUrl } = require('./lib/proxy');
-const { isBlockedVideo, dropAdult } = require('./lib/util');
+const { isBlockedVideo, dropAdult, isAdultSite, unwantedContent } = require('./lib/util');
 const { blockedCount } = require('./lib/adblock');
 
 const PORT = +process.env.PORT || 3000;
@@ -61,7 +61,7 @@ async function handleSearch(req, res, query) {
   const send = (event, data) => { if (!ac.signal.aborted) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
   const heartbeat = setInterval(() => send('ping', {}), 15000);
 
-  const stats = { engines: {}, pagesTotal: 0, pagesDone: 0, found: 0 };
+  const stats = { engines: {}, pagesTotal: 0, pagesDone: 0, found: 0, unrelated: 0 };
   const adsBefore = blockedCount();
   const status = (message) => send('status', { message, ...stats });
   const seenMedia = new Set();
@@ -70,6 +70,11 @@ async function handleSearch(req, res, query) {
     if (isBlockedVideo(item)) return; // excluded sites (YouTube, TikTok)
     // Adult sites switched off, or content depicting minors (always excluded).
     if (dropAdult(item, hit, includeRedgifs)) return;
+    const adult = isAdultSite(item.pageUrl || '') || isAdultSite(item.src || '');
+    // Music videos / HMV / PMV everywhere, male-focus content on adult sites (tags, titles…).
+    if (unwantedContent([item.title, item.pageTitle, item.description, item.keywords, hit.title, hit.snippet, item.pageUrl, adult ? item.pageText : ''].join(' '), adult)) { stats.unrelated++; return; }
+    // Strict matching: every word you typed must be in its title, description or tags.
+    if (!matchesQuery(q, item, hit, adult ? item.pageText : '')) { stats.unrelated++; return; }
     const key = item.kind === 'embed' ? `${item.provider}:${item.id}` : item.src.replace(/[?#].*$/, '');
     if (seenMedia.has(key)) return;
     seenMedia.add(key);

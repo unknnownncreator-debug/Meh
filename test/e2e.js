@@ -318,7 +318,7 @@ function readSse(url) {
   let items;
   await step('inspects pages and streams found videos', async () => {
     const t0 = Date.now();
-    const events = await readSse(`${M}/api/search?q=volcano%20eruption`);
+    const events = await readSse(`${M}/api/search?q=volcano`);
     items = events.filter((e) => e.event === 'item').map((e) => e.data);
     const done = events.find((e) => e.event === 'done');
     assert.ok(done, 'search finished');
@@ -349,7 +349,25 @@ function readSse(url) {
     assert.ok(!byPage['ad-only.html'], 'ad-only page yields nothing');
     assert.ok(!byPage['no-video.html'], 'text page yields nothing');
     const top = [...items].sort((a, b) => b.score - a.score)[0];
-    assert.match(top.title, /eruption/i, 'best match ranked first');
+    assert.ok(/volcano/i.test(top.title), 'every result matches the search word');
+    assert.ok(items.every((i) => /volcano/i.test(`${i.title} ${i.pageTitle} ${i.description}`)), 'nothing unrelated');
+  });
+
+  await step('strict matching: every word must be in the title/description/tags; music videos dropped', async () => {
+    const run = async (q, list) => (await readSse(`${M}/api/search?q=${encodeURIComponent(q)}&testpages=${encodeURIComponent(list.map((p) => `${F}/${p}.html`).join(','))}`));
+    const pagesList = ['static-video', 'jsonld', 'js-player', 'mixed', 'music-video', 'body-mention'];
+    let ev = await run('volcano eruption', pagesList);
+    let got = ev.filter((e) => e.event === 'item').map((e) => e.data.title);
+    assert.deepEqual(got, ['Volcano eruption caught on camera'], 'only the video whose title has both words');
+    const done = ev.find((e) => e.event === 'done').data;
+    assert.ok(done.unrelated >= 3, `unrelated videos counted (${done.unrelated})`);
+    ev = await run('volcano', pagesList);
+    got = ev.filter((e) => e.event === 'item').map((e) => e.data.title);
+    assert.ok(!got.some((t) => /music video/i.test(t)), 'music video dropped');
+    assert.ok(!got.some((t) => /pasta/i.test(t)), 'a page that only mentions the word in its body text is dropped');
+    assert.ok(got.length >= 4, got.join(' | '));
+    ev = await run('"volcano eruption"', ['static-video', 'jsonld']);
+    assert.equal(ev.filter((e) => e.event === 'item').length, 1, 'quoted phrase must appear exactly');
   });
 
   await step('proxy streams media with range requests', async () => {
@@ -382,13 +400,13 @@ function readSse(url) {
     const shots = process.env.MEH_SHOTS;
     await page.goto(M);
     if (shots) await page.screenshot({ path: path.join(shots, 'home.png') });
-    await page.fill('#q', 'volcano eruption');
+    await page.fill('#q', 'volcano');
     await page.press('#q', 'Enter');
 
     // First video should start on its own.
     await page.waitForFunction(() => { const v = document.querySelector('#video'); return !v.hidden && v.currentTime > 1.5; }, null, { timeout: 30000 });
     const first = await page.textContent('#nowTitle');
-    assert.match(first, /eruption/i);
+    assert.match(first, /volcano/i);
     await page.waitForFunction(() => document.querySelector('#statusDot').classList.contains('done'), null, { timeout: 30000 });
     const queued = await page.$$eval('#queue li', (l) => l.length);
     assert.ok(queued >= 3, `queue shows ${queued}`);

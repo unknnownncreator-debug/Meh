@@ -343,6 +343,7 @@ object Inspector {
                 // Keywords / tag metadata count as page text (relevance, and the adult-site safety check).
                 pageUrl = hit.url, pageTitle = pageTitle, via = c.origin,
                 pageText = listOfNotNull(m["keywords"], m["article:tag"], m["video:tag"], main.text).joinToString(" ").take(4000),
+                keywords = listOfNotNull(m["keywords"], m["article:tag"], m["video:tag"]).joinToString(" ").take(1000),
             )
         }
     }

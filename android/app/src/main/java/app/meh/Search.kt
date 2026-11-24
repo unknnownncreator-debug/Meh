@@ -160,6 +160,7 @@ class Search(
                 if (isBlockedSite(h.url)) continue // excluded sites (YouTube, TikTok)
                 if (!includeRedgifs && Adult.isAdultSite(h.url)) continue // adult sites switched off
                 if (Adult.isAdultSite(h.url) && Adult.depictsMinors("${h.title} ${h.snippet} ${h.url}")) continue // always excluded
+                if (Adult.unwanted("${h.title} ${h.snippet} ${h.url}", Adult.isAdultSite(h.url)) != null) continue // music videos / male focus
                 if (seen.add(normalizeKey(h.url))) merged += h
             }
         }
@@ -170,7 +171,7 @@ class Search(
         /** Words of a free-text query as booru tags, plus the minors minus-tags. */
         fun booruTags(query: String, extra: String): String {
             val words = query.lowercase().split(Regex("\\s+")).map { it.replace(Regex("[^a-z0-9_'.:-]"), "") }.filter { it.isNotEmpty() }.take(5)
-            return (listOf(extra) + words + Adult.NEGATIVE_TAGS.map { "-$it" }).joinToString(" ")
+            return (listOf(extra) + words + Adult.NEGATIVE_TAGS.map { "-$it" } + Adult.UNWANTED_NEGATIVE_TAGS.map { "-$it" }).joinToString(" ")
         }
 
         fun parseRule34video(html: String): List<Hit> {

@@ -107,6 +107,7 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
     private val watchdog = Runnable { failCurrent(SkipReason.TIMED_OUT) }
     private var skippedCount = 0
     private var adsAtSearchStart = 0
+    private var unrelatedCount = 0
     private val embedEnd = Runnable { onEmbedEnded(token) }
 
     private var webUnavailable = false
@@ -270,6 +271,7 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
         items.clear(); failed.clear(); played.clear(); history.clear()
         current = null; page = 0; hasMore = false; startPending = false; skippedCount = 0
         adsAtSearchStart = Blocklist.blocked.get()
+        unrelatedCount = 0
         clearNow()
         setOverlay("Searching the web for “$q”…", busy = true)
         loadPage(0)
@@ -300,13 +302,15 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
         }
     }
 
-    override fun onDone(found: Int, hasMore: Boolean) {
+    override fun onDone(found: Int, hasMore: Boolean, unrelated: Int) {
+        unrelatedCount += unrelated
         loading = false
         this.hasMore = hasMore
         val n = items.size
         val sites = items.values.map { it.site }.toSet().size
         val ads = Blocklist.blocked.get() - adsAtSearchStart
-        val adText = if (ads > 0) " · $ads ad${if (ads == 1) "" else "s"} blocked" else ""
+        val adText = (if (ads > 0) " · $ads ad${if (ads == 1) "" else "s"} blocked" else "") +
+            (if (unrelatedCount > 0) " · $unrelatedCount unrelated hidden" else "")
         setStatus((if (n > 0) "Found $n video${if (n == 1) "" else "s"} across $sites site${if (sites == 1) "" else "s"}" else "No playable videos found") + adText, done = true)
         if (current == null && !startPending) {
             when {

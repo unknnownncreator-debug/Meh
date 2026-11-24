@@ -39,8 +39,9 @@ Then open **http://localhost:3000**, type something, and press Enter.
    - **Static HTML.** Reads what the page declares: `og:video` and Twitter player tags, JSON-LD `VideoObject` data, `<video>` and `<source>` tags, and embedded Vimeo or Dailymotion players. This is fast and needs no browser.
    - **Live browser.** If nothing was declared, the page is opened in headless Chromium. The browser scrolls, presses play, and watches the network for video files (`.mp4`, `.webm`) and HLS streams (`.m3u8`). It then reads the live DOM of every frame. This catches players that load their video with JavaScript.
    - Ad networks are blocked, and tiny hidden videos are discarded. See **Ads** below for how pre-roll ads are kept out.
-3. **Rank** (`lib/ranker.js`). Each video gets a relevance score from 0 to 100. The score depends on how much of your query appears in the video's title (weighted highest), the page title, the description and the text around the video. Phrase matches and the search engine's own ranking add bonuses. The player also spreads sites out so one domain doesn't take over the queue.
-4. **Play** (`public/app.js`). Results stream to the page live, so the first video starts within seconds while the rest of the web is still being inspected.
+3. **Match strictly.** Every word you type must appear in the video's title, its page's title, its description, or its tags/keywords. Words that only appear somewhere in the page's body text don't count. Searches of 4 or more words may miss one word; text in "quotes" must appear exactly. Word forms count ("volcano" matches "volcanoes"), different words don't ("dragon" doesn't match "dragonball"). The status line shows how many unrelated videos were hidden.
+4. **Rank** (`lib/ranker.js`). Each video gets a relevance score from 0 to 100. The score depends on how much of your query appears in the video's title (weighted highest), the page title, the description and the text around the video. Phrase matches and the search engine's own ranking add bonuses. The player also spreads sites out so one domain doesn't take over the queue.
+5. **Play** (`public/app.js`). Results stream to the page live, so the first video starts within seconds while the rest of the web is still being inspected.
    - Direct video files play in the built-in player.
    - HLS streams play through [hls.js](https://github.com/video-dev/hls.js).
    - Vimeo pages use their own embedded player, so the app knows when a video ends.
@@ -78,6 +79,14 @@ RedGIFs, rule34video.com, rule34.paheal.net and rule34.xxx sit behind an **Adult
 - **rule34.xxx:** behind Cloudflare, so its pages are read through the hidden browser, which waits for the "checking your browser" step to clear. Its data service needs an account key, so it isn't used.
 
 **Content depicting minors is always excluded** — this is not a setting. Queries asking for it are never sent to these sites; booru searches carry minus-tags for it (`-loli -shota …`); results whose tags, titles or text mark it are dropped; and every adult-site page's title, description, keywords and tag lists are checked again before its video can be queued. The terms live in `lib/util.js` / `Adult.kt`.
+
+## Unwanted content
+
+Always removed, not a setting:
+- **Music videos everywhere:** HMV, PMV and AMV, and anything titled or tagged as a music video, official video or audio, lyric video or visualizer. vevo.com is an excluded site.
+- **Male-focus content on adult sites:** tags such as male focus, male only, solo male, yaoi, gay and bara. Plain "male" doesn't count, since that tag appears on most mixed content.
+
+rule34.xxx and paheal searches carry `-pmv -hmv -male_focus -yaoi` as minus-tags; everything else is filtered by titles, descriptions and tags. The word lists are in `lib/util.js` and `Adult.kt`.
 
 ## Excluded sites
 

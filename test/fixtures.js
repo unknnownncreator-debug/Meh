@@ -124,6 +124,12 @@ const PAGES = {
   '/short-unknown.html': `<!doctype html><html><head><title>Volcano teaser</title></head><body>
     <video width="640" height="360" src="/media/clips/q6.mp4"></video></body></html>`,
 
+  // A music video (must be dropped) and a page that only mentions the search words in its body.
+  '/music-video.html': `<!doctype html><html><head><title>Volcano (Official Music Video)</title></head><body>
+    <video width="640" height="360" src="/media/clips/l9.mp4"></video></body></html>`,
+  '/body-mention.html': `<!doctype html><html><head><title>Cooking pasta at home</title></head><body>
+    <p>Unrelated aside: a volcano eruption once delayed my flight.</p><video width="640" height="360" src="/media/clips/l8.mp4"></video></body></html>`,
+
   '/no-video.html': `<!doctype html><html><head><title>Volcano text article</title></head><body><p>Just text about a volcano.</p></body></html>`,
 };
 

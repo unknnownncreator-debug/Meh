@@ -98,6 +98,8 @@ val BLOCKED_SITES = listOf(
     // TikTok
     "tiktok.com", "tiktokv.com", "tiktokcdn.com", "tiktokcdn-us.com", "tiktokcdn-eu.com", "tiktokw.us",
     "ttwstatic.com", "ibytedtos.com", "byteoversea.com", "muscdn.com",
+    // music videos
+    "vevo.com",
 )
 private val BLOCKED_HOST = Regex("(^|\\.)(" + BLOCKED_SITES.joinToString("|") { Regex.escape(it) } + ")$", IC)
 fun isBlockedSite(url: String?): Boolean = try {
