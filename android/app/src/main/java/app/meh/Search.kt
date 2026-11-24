@@ -149,12 +149,9 @@ class Search(
         val SITES: Map<String, Site> = linkedMapOf(
             "xvideos" to Site("XVideos", "https://www.xvideos.com", { q, p -> "https://www.xvideos.com/?k=${plus(q)}" + if (p > 0) "&p=$p" else "" }, Regex("^/video[.\\d][\\w.]*/[^/?#]+/?$", IC)),
             "xnxx" to Site("XNXX", "https://www.xnxx.com", { q, p -> "https://www.xnxx.com/search/${plus(q)}" + if (p > 0) "/$p" else "" }, Regex("^/video-[a-z0-9]+/[^/?#]+/?$", IC)),
-            "pornhub" to Site("Pornhub", "https://www.pornhub.com", { q, p -> "https://www.pornhub.com/video/search?search=${plus(q)}&page=${p + 1}" }, Regex("^/view_video\\.php\\?viewkey=\\w+$", IC)),
             "xhamster" to Site("xHamster", "https://xhamster.com", { q, p -> "https://xhamster.com/search/${java.net.URLEncoder.encode(q.trim(), "UTF-8").replace("+", "%20")}?page=${p + 1}" }, Regex("^/videos/[\\w-]+-[a-z0-9]+/?$", IC)),
             "eporner" to Site("Eporner", "https://www.eporner.com", { q, p -> "https://www.eporner.com/search/${dashes(q)}/${p + 1}/" }, Regex("^/(?:video-\\w+|hd-porn/\\w+)/[^/?#]+/?$", IC)),
             "spankbang" to Site("SpankBang", "https://spankbang.com", { q, p -> "https://spankbang.com/s/${plus(q)}/${p + 1}/" }, Regex("^/[a-z0-9]+/video/[^/?#]+/?$", IC)),
-            "redtube" to Site("RedTube", "https://www.redtube.com", { q, p -> "https://www.redtube.com/?search=${plus(q)}&page=${p + 1}" }, Regex("^/\\d+/?$")),
-            "youporn" to Site("YouPorn", "https://www.youporn.com", { q, p -> "https://www.youporn.com/search/?query=${plus(q)}&page=${p + 1}" }, Regex("^/watch/\\d+/[^/?#]+/?$", IC)),
             "porntrex" to Site("PornTrex", "https://www.porntrex.com", { q, p -> "https://www.porntrex.com/search/${dashes(q)}/" + if (p > 0) "${p + 1}/" else "" }, Regex("^/video/\\d+/[^/?#]+/?$", IC)),
             "hqporner" to Site("HQporner", "https://hqporner.com", { q, p -> "https://hqporner.com/?q=${plus(q)}" + if (p > 0) "&p=${p + 1}" else "" }, Regex("^/hdporn/\\d+-[^/?#]+\\.html$", IC)),
             "youjizz" to Site("YouJizz", "https://www.youjizz.com", { q, p -> "https://www.youjizz.com/search/${dashes(q)}-${p + 1}.html" }, Regex("^/videos/[^/?#]+-\\d+\\.html$", IC)),

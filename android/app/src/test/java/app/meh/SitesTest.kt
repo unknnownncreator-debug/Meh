@@ -13,8 +13,6 @@ class SitesTest {
         assertEquals(listOf("https://www.xvideos.com/video.okbx123/big_red_dragon_fight" to "Big red dragon fight (HD)", "https://www.xvideos.com/video12345/old_style_dragon" to "Old style dragon"), hits.map { it.url to it.title })
         hits = Search.parseSiteLinks("xnxx", page("<a href=\"/video-1a2b3c/dragon_lair\">Dragon lair</a>"))
         assertEquals(listOf("https://www.xnxx.com/video-1a2b3c/dragon_lair"), hits.map { it.url })
-        hits = Search.parseSiteLinks("pornhub", page("<a href=\"/view_video.php?viewkey=ph5f0abc123\"><img alt=\"Dragon night\"></a><a href=\"/view_video.php?viewkey=ph5f0abc123&amp;pkey=1\">playlist</a>"))
-        assertEquals(listOf("https://www.pornhub.com/view_video.php?viewkey=ph5f0abc123" to "Dragon night"), hits.map { it.url to it.title })
         hits = Search.parseSiteLinks("xhamster", page("<a href=\"https://xhamster.com/videos/red-dragon-awakens-xh1A2b3\">Red dragon awakens</a><a href=\"https://xhamster.com/videos/teen-dragon-xh9\">x</a>"))
         assertEquals("minors-marked title dropped", listOf("https://xhamster.com/videos/red-dragon-awakens-xh1A2b3"), hits.map { it.url })
         hits = Search.parseSiteLinks("eporner", page("<a href=\"/video-AbC123dEf/dragon-fight/\"></a><a href=\"/hd-porn/XyZ987/another-dragon/\">Another dragon</a>"))
@@ -22,8 +20,6 @@ class SitesTest {
             listOf("https://www.eporner.com/video-AbC123dEf/dragon-fight/" to "dragon fight", "https://www.eporner.com/hd-porn/XyZ987/another-dragon/" to "Another dragon"), hits.map { it.url to it.title })
         hits = Search.parseSiteLinks("spankbang", page("<a href=\"/8xyz1/video/dragon+fight\">Dragon fight</a>"))
         assertEquals(listOf("https://spankbang.com/8xyz1/video/dragon+fight"), hits.map { it.url })
-        assertEquals("redtube", listOf("https://www.redtube.com/40123456"), Search.parseSiteLinks("redtube", page("<a href=\"/40123456\" title=\"Red dragon\">x</a><a href=\"/redtube/dragon\">tag</a>")).map { it.url })
-        assertEquals("youporn", listOf("https://www.youporn.com/watch/16012345/red-dragon-night/"), Search.parseSiteLinks("youporn", page("<a href=\"/watch/16012345/red-dragon-night/\">Red dragon night</a>")).map { it.url })
         assertEquals("porntrex", listOf("https://www.porntrex.com/video/2012345/red-dragon/"), Search.parseSiteLinks("porntrex", page("<a href=\"https://www.porntrex.com/video/2012345/red-dragon/\">Red dragon</a>")).map { it.url })
         assertEquals("hqporner", listOf("https://hqporner.com/hdporn/112233-red_dragon.html"), Search.parseSiteLinks("hqporner", page("<a href=\"/hdporn/112233-red_dragon.html\">Red dragon</a>")).map { it.url })
         assertEquals("youjizz", listOf("https://www.youjizz.com/videos/red-dragon-night-12345678.html"), Search.parseSiteLinks("youjizz", page("<a href=\"/videos/red-dragon-night-12345678.html\">Red dragon night</a>")).map { it.url })
@@ -35,7 +31,8 @@ class SitesTest {
     }
 
     @Test fun searchAddresses() {
-        assertEquals("https://www.pornhub.com/video/search?search=red+dragon&page=1", Search.SITES.getValue("pornhub").search("red dragon", 0))
+        assertEquals("https://spankbang.com/s/red+dragon/1/", Search.SITES.getValue("spankbang").search("red dragon", 0))
+        for (gone in listOf("pornhub", "redtube", "youporn")) assertTrue("$gone removed", gone !in Search.SITES)
         assertEquals("https://www.xvideos.com/?k=red+dragon&p=2", Search.SITES.getValue("xvideos").search("red dragon", 2))
         assertEquals("https://www.eporner.com/search/red-dragon/1/", Search.SITES.getValue("eporner").search("Red Dragon!", 0))
         val r34 = Search.SITES.getValue("rule34us").search("dragon", 0)
@@ -50,7 +47,7 @@ class SitesTest {
         for (u in listOf("https://www.redtube.com/1", "https://www.youporn.com/watch/1/x/", "https://hqporner.com/hdporn/1-x.html", "https://gelbooru.com/index.php", "https://www.xvideos.com/video.x/y", "https://www.pornhub.com/view_video.php?viewkey=1", "https://ev.phncdn.com/hls/x.m3u8",
                 "https://xhamster.com/videos/x-1", "https://spankbang.com/1/video/x", "https://rule34.us/index.php", "https://www.eporner.com/video-1/x/"))
             assertTrue(u, Adult.isAdultSite(u))
-        assertEquals("accessAgeDisclaimerPH=1; accessAgeDisclaimerUK=1; age_verified=1; platform=pc", Http.cookieFor("https://www.pornhub.com/view_video.php?viewkey=1"))
+        assertEquals("age_pass=1", Http.cookieFor("https://spankbang.com/1/video/x"))
     }
 
     @Test fun videoLinksSetUpByPageScripts() {

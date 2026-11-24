@@ -59,8 +59,6 @@ class PlaybackFixesTest {
     }
 
     @Test fun ageConfirmationCookiesAreIncluded() {
-        val ph = SharedCookies.header("https://www.pornhub.com/view_video.php?viewkey=1")!!
-        assertTrue(ph, ph.contains("accessAgeDisclaimerPH=1") && ph.contains("age_verified=1"))
         assertTrue(SharedCookies.header("https://spankbang.com/1/video/x")!!.contains("age_pass=1"))
     }
 

@@ -124,18 +124,12 @@ function readSse(url) {
     assert.deepEqual(hits.map((h) => [h.url, h.title]), [['https://www.xvideos.com/video.okbx123/big_red_dragon_fight', 'Big red dragon fight (HD)'], ['https://www.xvideos.com/video12345/old_style_dragon', 'Old style dragon']]);
     hits = parseSiteLinks('xnxx', page('<a href="/video-1a2b3c/dragon_lair">Dragon lair</a>'));
     assert.deepEqual(hits.map((h) => h.url), ['https://www.xnxx.com/video-1a2b3c/dragon_lair']);
-    hits = parseSiteLinks('pornhub', page('<a href="/view_video.php?viewkey=ph5f0abc123"><img alt="Dragon night"></a><a href="/view_video.php?viewkey=ph5f0abc123&amp;pkey=1">playlist</a>'));
-    assert.deepEqual(hits.map((h) => [h.url, h.title]), [['https://www.pornhub.com/view_video.php?viewkey=ph5f0abc123', 'Dragon night']]);
     hits = parseSiteLinks('xhamster', page('<a href="https://xhamster.com/videos/red-dragon-awakens-xh1A2b3">Red dragon awakens</a><a href="https://xhamster.com/videos/teen-dragon-xh9">x</a>'));
     assert.deepEqual(hits.map((h) => h.url), ['https://xhamster.com/videos/red-dragon-awakens-xh1A2b3'], 'minors-marked title dropped');
     hits = parseSiteLinks('eporner', page('<a href="/video-AbC123dEf/dragon-fight/"></a><a href="/hd-porn/XyZ987/another-dragon/">Another dragon</a>'));
     assert.deepEqual(hits.map((h) => [h.url, h.title]), [['https://www.eporner.com/video-AbC123dEf/dragon-fight/', 'dragon fight'], ['https://www.eporner.com/hd-porn/XyZ987/another-dragon/', 'Another dragon']], 'no title → words from the address');
     hits = parseSiteLinks('spankbang', page('<a href="/8xyz1/video/dragon+fight">Dragon fight</a>'));
     assert.deepEqual(hits.map((h) => h.url), ['https://spankbang.com/8xyz1/video/dragon+fight']);
-    hits = parseSiteLinks('redtube', page('<a href="/40123456" title="Red dragon">x</a><a href="/redtube/dragon">tag</a>'));
-    assert.deepEqual(hits.map((h) => h.url), ['https://www.redtube.com/40123456'], 'redtube');
-    hits = parseSiteLinks('youporn', page('<a href="/watch/16012345/red-dragon-night/">Red dragon night</a>'));
-    assert.deepEqual(hits.map((h) => h.url), ['https://www.youporn.com/watch/16012345/red-dragon-night/'], 'youporn');
     hits = parseSiteLinks('porntrex', page('<a href="https://www.porntrex.com/video/2012345/red-dragon/">Red dragon</a>'));
     assert.deepEqual(hits.map((h) => h.url), ['https://www.porntrex.com/video/2012345/red-dragon/'], 'porntrex');
     hits = parseSiteLinks('hqporner', page('<a href="/hdporn/112233-red_dragon.html">Red dragon</a>'));
@@ -151,7 +145,8 @@ function readSse(url) {
     hits = parseSiteLinks('rule34us', page('<a href="index.php?r=posts/view&amp;id=123"><img alt="dragon animated video"></a>'));
     assert.deepEqual(hits.map((h) => h.url), ['https://rule34.us/index.php?r=posts/view&id=123']);
     // Search addresses (and minus-tags on the booru one).
-    assert.equal(SITES.pornhub.search('red dragon', 0), 'https://www.pornhub.com/video/search?search=red+dragon&page=1');
+    assert.equal(SITES.spankbang.search('red dragon', 0), 'https://spankbang.com/s/red+dragon/1/');
+    for (const gone of ['pornhub', 'redtube', 'youporn']) assert.equal(SITES[gone], undefined, `${gone} removed`);
     assert.equal(SITES.xvideos.search('red dragon', 2), 'https://www.xvideos.com/?k=red+dragon&p=2');
     assert.equal(SITES.eporner.search('Red Dragon!', 0), 'https://www.eporner.com/search/red-dragon/1/');
     assert.match(SITES.rule34us.search('dragon', 0), /q=video\+dragon\+-loli\+.*-pmv\+-hmv\+-male_focus\+-yaoi&page=0$/);
@@ -386,7 +381,7 @@ function readSse(url) {
     assert.equal(r.status, 206, 'streamed through the relay with the page\'s cookie');
     assert.equal((await r.arrayBuffer()).byteLength, 100);
     const { header } = require('../lib/cookies');
-    assert.match(header('https://www.pornhub.com/view_video.php?viewkey=1'), /accessAgeDisclaimerPH=1/, 'age-confirmation defaults');
+    assert.match(header('https://spankbang.com/1/video/x'), /age_pass=1/, 'age-confirmation defaults');
   });
 
   await step('proxy streams media with range requests', async () => {

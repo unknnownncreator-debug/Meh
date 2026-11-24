@@ -66,7 +66,6 @@ object Http {
     fun cookieFor(url: String): String {
         val host = try { java.net.URI(url).host ?: "" } catch (e: Exception) { "" }
         return when {
-            Regex("(^|\\.)pornhub\\.com$").containsMatchIn(host) -> "accessAgeDisclaimerPH=1; accessAgeDisclaimerUK=1; age_verified=1; platform=pc"
             Regex("(^|\\.)spankbang\\.com$").containsMatchIn(host) -> "age_pass=1"
             Regex("(^|\\.)xhamster\\.com$").containsMatchIn(host) -> "x_content_preference_index=straight"
             else -> "CONSENT=YES+1; SOCS=CAI"

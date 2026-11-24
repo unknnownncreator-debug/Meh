@@ -94,7 +94,7 @@ class WebInspector(private val context: Context, private val host: ViewGroup, si
         CookieManager.getInstance().apply {
             setAcceptCookie(true)
             // Pre-accept consent / "are you 18?" pages (same cookies as plain requests send).
-            for ((site, domain) in listOf("https://www.pornhub.com/" to ".pornhub.com", "https://spankbang.com/" to ".spankbang.com", "https://xhamster.com/" to ".xhamster.com")) {
+            for ((site, domain) in listOf("https://spankbang.com/" to ".spankbang.com", "https://xhamster.com/" to ".xhamster.com")) {
                 for (kv in Http.cookieFor(site).split("; ")) setCookie(site, "$kv; Domain=$domain; Path=/")
             }
         }
