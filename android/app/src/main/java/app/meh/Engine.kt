@@ -48,10 +48,12 @@ class Engine(private val scope: CoroutineScope, private val web: WebInspector) {
                 // Music videos / HMV / PMV everywhere, male-focus content on adult sites (tags, titles…).
                 Adult.unwanted(listOf(v.title, v.pageTitle, v.description, v.keywords, hit.title, hit.snippet, v.pageUrl, if (adult) v.pageText else "").joinToString(" "), adult)
                     ?.let { reason -> unrelated++; report.hidden(reason); return@emit }
-                // Strict matching applies to general web results (DuckDuckGo). A site's own search
-                // already matched your words against its tags, which often aren't in the title.
-                if (hit.engine == GENERAL_ENGINE && !Ranker.matches(query, v, hit, if (adult) v.pageText else "")) {
-                    unrelated++; report.hidden("didn't match your words (web results)"); return@emit
+                // Web results (DuckDuckGo): every word must match. Site results: at least half the
+                // words, in the title, description, tags or the site's tag list.
+                val web = hit.engine == GENERAL_ENGINE
+                val tags = if (adult) v.pageText else ""
+                if (if (web) !Ranker.matches(query, v, hit, tags) else !Ranker.matchesLoosely(query, v, hit, tags)) {
+                    unrelated++; report.hidden(if (web) "didn't match your words (web results)" else "didn't match your words (site results)"); return@emit
                 }
                 v.score = Ranker.score(query, v, hit.rank)
                 report.added(hit.engine)
@@ -65,10 +67,18 @@ class Engine(private val scope: CoroutineScope, private val web: WebInspector) {
                     scope.launch(Dispatchers.Main) { if (busy) listener.onStatus("$name: $n results") }
                 }
             }
-            val queue = hits.take(MAX_PAGES)
+            // Site results whose title shares no word with the search ("popular / recommended" videos
+            // on the search page) are skipped without opening them — before the page budget applies.
+            val related = hits.filter { h ->
+                (h.engine == GENERAL_ENGINE || Ranker.hitLooksRelated(query, h)).also { ok ->
+                    if (!ok) { unrelated++; report.hidden("unrelated link on a site's search page") }
+                }
+            }
+            val queue = related.take(MAX_PAGES)
             if (queue.isEmpty()) {
-                listener.onStatus("No search results — the search engines may be blocking requests. Try again in a moment.")
-                listener.onDone(0, false, 0)
+                listener.onStatus(if (hits.isNotEmpty()) "Nothing related to your words on the sites' search pages — try other words."
+                    else "No search results — the search engines may be blocking requests. Try again in a moment.")
+                listener.onDone(0, hits.isNotEmpty() && page < 10, unrelated)
                 return@launch
             }
             val toInspect = queue

@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { searchWeb, DEFAULT_ENGINES, ADULT_ENGINES } = require('./lib/search');
 const { inspectPage, browserFetch, shutdown } = require('./lib/inspector');
-const { scoreItem, matchesQuery } = require('./lib/ranker');
+const { scoreItem, matchesQuery, matchesLoosely, hitLooksRelated } = require('./lib/ranker');
 const { handleProxy, proxyUrl } = require('./lib/proxy');
 const { isBlockedVideo, dropAdult, isAdultSite, unwantedContent } = require('./lib/util');
 const { blockedCount } = require('./lib/adblock');
@@ -76,10 +76,11 @@ async function handleSearch(req, res, query) {
     const unwanted = unwantedContent([item.title, item.pageTitle, item.description, item.keywords, hit.title, hit.snippet, item.pageUrl, adult ? item.pageText : ''].join(' '), adult);
     if (unwanted) { stats.unrelated++; hide(unwanted); return; }
     // Strict matching: every word you typed must be in its title, description or tags.
-    // Strict matching applies to general web results (DuckDuckGo; test pages stand in for them).
-    // A site's own search already matched your words against its tags, often not in the title.
-    if ((hit.engine === 'duckduckgo' || hit.engine === 'test') && !matchesQuery(q, item, hit, adult ? item.pageText : '')) {
-      stats.unrelated++; hide("didn't match your words (web results)"); return;
+    // Web results (DuckDuckGo; test pages stand in for them): every word must match.
+    // Site results: at least half the words, in title, description, tags or the site's tag list.
+    const web = hit.engine === 'duckduckgo' || hit.engine === 'test';
+    if (web ? !matchesQuery(q, item, hit, adult ? item.pageText : '') : !matchesLoosely(q, item, hit, adult ? item.pageText : '')) {
+      stats.unrelated++; hide(web ? "didn't match your words (web results)" : "didn't match your words (site results)"); return;
     }
     const key = item.kind === 'embed' ? `${item.provider}:${item.id}` : item.src.replace(/[?#].*$/, '');
     if (seenMedia.has(key)) return;
@@ -105,11 +106,18 @@ async function handleSearch(req, res, query) {
         engines: includeRedgifs ? [...DEFAULT_ENGINES, ...ADULT_ENGINES] : DEFAULT_ENGINES,
         onEngine: (name, n, ms) => { stats.engines[name] = n; status(`${name}: ${n} results (${ms} ms)`); },
       });
-    const queue = hits.slice(0, MAX_PAGES);
-    stats.pagesTotal = queue.length;
-    status(queue.length ? `Inspecting ${queue.length} pages for video…` : 'No search results. The search engines may be blocking requests — try again in a moment.');
-
-    const toInspect = queue;
+    // Site results whose title shares no word with the search ("popular / recommended" videos on
+    // the search page) are skipped without opening them — before the page budget is applied.
+    const related = hits.filter((hit) => {
+      if (hit.engine === 'duckduckgo' || hit.engine === 'test' || hitLooksRelated(q, hit)) return true;
+      stats.unrelated++; stats.hidden["unrelated link on a site's search page"] = (stats.hidden["unrelated link on a site's search page"] || 0) + 1;
+      return false;
+    });
+    const toInspect = related.slice(0, MAX_PAGES);
+    stats.pagesTotal = toInspect.length;
+    status(toInspect.length ? `Inspecting ${toInspect.length} pages for video…`
+      : hits.length ? 'Nothing related to your words on the sites\' search pages — try other words.'
+        : 'No search results. The search engines may be blocking requests — try again in a moment.');
 
     let next = 0;
     const worker = async () => {

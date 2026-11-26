@@ -47,18 +47,51 @@ object Ranker {
      * Word forms count ("volcano" ~ "volcanoes"), different words don't ("dragon" ≠ "dragonball").
      */
     fun matches(query: String, v: Video, hit: Hit? = null, extra: String = ""): Boolean {
+        val m = wordMatches(query, fields(v, hit, extra))
+        if (m.words == 0 && !m.hasPhrases) return true
+        return m.words - m.matched <= (if (m.words >= 4) 1 else 0) && m.phrasesOk
+    }
+
+    /**
+     * Site results (a site's own search matched your words against its tags): at least half of the
+     * words — rounded up, so 1–2 words need 1, 3–4 need 2 — in the title, description, tags or the
+     * site's tag list. Keeps tag matches, drops the unrelated "popular / recommended" videos.
+     */
+    fun matchesLoosely(query: String, v: Video, hit: Hit? = null, extra: String = ""): Boolean {
+        val m = wordMatches(query, fields(v, hit, extra))
+        if (m.words == 0 && !m.hasPhrases) return true
+        return m.matched >= (m.words + 1) / 2 && m.phrasesOk
+    }
+
+    /**
+     * Before opening a site result: does its title / address share any word with the query? Search
+     * pages also list "popular / recommended" videos; those are skipped without opening them.
+     * No title to judge by → keep it.
+     */
+    fun hitLooksRelated(query: String, hit: Hit): Boolean {
+        if (hit.title.isBlank()) return true
+        val slug = try { decodeUrl(java.net.URI(hit.url).rawPath ?: "") } catch (e: Exception) { "" }
+        val m = wordMatches(query, listOf(hit.title, hit.snippet, slug).joinToString(" "))
+        return m.words == 0 || m.matched > 0
+    }
+
+    private class Match(val words: Int, val matched: Int, val phrasesOk: Boolean, val hasPhrases: Boolean)
+
+    private fun fields(v: Video, hit: Hit?, extra: String): String {
+        val slug = try { decodeUrl(java.net.URI(v.pageUrl).rawPath ?: "") } catch (e: Exception) { "" }
+        return listOf(v.title, v.pageTitle, v.description, v.keywords, hit?.title, hit?.snippet, slug, extra).filterNotNull().joinToString(" \n ")
+    }
+
+    /** How many of the query's words appear in [text], and whether every "quoted phrase" does. */
+    private fun wordMatches(query: String, text: String): Match {
         val phrases = Regex("\"([^\"]+)\"").findAll(query).map { norm(it.groupValues[1]) }.filter { it.isNotBlank() }.toList()
         val words = tokens(query.replace("\"", " ")).map(::stem).distinct()
-        if (words.isEmpty() && phrases.isEmpty()) return true
-        val slug = try { decodeUrl(java.net.URI(v.pageUrl).rawPath ?: "") } catch (e: Exception) { "" }
-        val text = listOf(v.title, v.pageTitle, v.description, v.keywords, hit?.title, hit?.snippet, slug, extra).filterNotNull().joinToString(" \n ")
         val toks = tokens(text).map(::stem)
         val set = toks.toHashSet()
         fun close(a: String, b: String) = a.length > 3 && b.length > 3 && kotlin.math.abs(a.length - b.length) <= 3 && (a.startsWith(b) || b.startsWith(a))
-        val missing = words.count { q -> q !in set && toks.none { close(it, q) } }
-        if (missing > (if (words.size >= 4) 1 else 0)) return false
+        val matched = words.count { q -> q in set || toks.any { close(it, q) } }
         val n = norm(text)
-        return phrases.all { n.contains(it) }
+        return Match(words.size, matched, phrases.all { n.contains(it) }, phrases.isNotEmpty())
     }
 
     private fun norm(s: String) =

@@ -387,6 +387,19 @@ function readSse(url) {
     assert.match(header('https://spankbang.com/1/video/x'), /age_pass=1/, 'age-confirmation defaults');
   });
 
+  await step('site results: half the words; unrelated search-page links skipped', () => {
+    const { matchesLoosely: L, hitLooksRelated: H } = require('../lib/ranker');
+    const l = (q, title, tags = '') => L(q, { title }, {}, tags);
+    assert.equal(l('red dragon fight', 'Dragon fight in the cave'), true);
+    assert.equal(l('red dragon fight', 'Hot summer compilation'), false);
+    assert.equal(l('red dragon fight', 'Episode 12', 'Tags: dragon animated fight'), true, "the site's tag list counts");
+    assert.equal(l('dragon', 'Episode 12', 'Tags: knight castle'), false);
+    assert.equal(l('"red dragon"', 'Dragon red'), false, 'quoted phrases still exact');
+    assert.equal(H('red dragon', { title: 'Trending: summer party', url: 'https://x.com/video-1/summer' }), false);
+    assert.equal(H('red dragon', { title: '', url: 'https://x.com/video-1/x' }), true, 'no title → keep');
+    assert.equal(H('red dragon', { title: 'Episode 3', url: 'https://x.com/video-1/red-dragon-ep3' }), true, 'the address counts');
+  });
+
   await step('proxy streams media with range requests', async () => {
     const file = items.find((i) => i.kind === 'file');
     const r = await fetch(M + file.playUrl, { headers: { Range: 'bytes=0-99' } });

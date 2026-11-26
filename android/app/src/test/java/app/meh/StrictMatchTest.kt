@@ -25,6 +25,23 @@ class StrictMatchTest {
         for ((q, title, want) in cases) assertEquals("$q / $title", want, m(q, title))
     }
 
+    @Test fun siteResultsNeedHalfTheWords() {
+        fun l(q: String, title: String, tags: String = "") = Ranker.matchesLoosely(q, Video("file", "https://x/v.mp4", title = title), null, tags)
+        assertEquals(true, l("red dragon fight", "Dragon fight in the cave"))
+        assertEquals(false, l("red dragon fight", "Hot summer compilation"))
+        assertEquals("the site's tag list counts", true, l("red dragon fight", "Episode 12", "Tags: dragon animated fight"))
+        assertEquals(false, l("dragon", "Episode 12", "Tags: knight castle"))
+        assertEquals(true, l("dragon", "Big dragons"))
+        assertEquals(true, l("\"red dragon\"", "Red dragon awakens"))
+        assertEquals("quoted phrases still exact", false, l("\"red dragon\"", "Dragon red"))
+    }
+
+    @Test fun unrelatedSearchPageLinksSkippedBeforeOpening() {
+        assertEquals(false, Ranker.hitLooksRelated("red dragon", Hit("https://x.com/video-1/summer", "Trending: summer party")))
+        assertEquals("no title to judge by → keep", true, Ranker.hitLooksRelated("red dragon", Hit("https://x.com/video-1/x", "")))
+        assertEquals("the address counts", true, Ranker.hitLooksRelated("red dragon", Hit("https://x.com/video-1/red-dragon-ep3", "Episode 3")))
+    }
+
     @Test fun onlyTitleDescriptionTagsAndAddressCount() {
         val body = Video("file", "https://x/v.mp4", title = "Cooking pasta at home", pageUrl = "https://blog.example/pasta",
             pageText = "Unrelated aside: a volcano eruption once delayed my flight.")
