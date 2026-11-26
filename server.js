@@ -15,7 +15,7 @@ const { blockedCount } = require('./lib/adblock');
 const PORT = +process.env.PORT || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
 const CONCURRENCY = +process.env.MEH_CONCURRENCY || 5;
-const MAX_PAGES = +process.env.MEH_MAX_PAGES || 40;
+const MAX_PAGES = +process.env.MEH_MAX_PAGES || 80;
 // Testing hook: when MEH_TEST_PAGES is set, skip web search and inspect these URLs
 // instead (comma-separated). In that mode a request may also pass its own ?testpages=.
 function testPages(query) {
@@ -61,24 +61,31 @@ async function handleSearch(req, res, query) {
   const send = (event, data) => { if (!ac.signal.aborted) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
   const heartbeat = setInterval(() => send('ping', {}), 15000);
 
-  const stats = { engines: {}, pagesTotal: 0, pagesDone: 0, found: 0, unrelated: 0 };
+  const stats = { engines: {}, added: {}, checked: {}, hidden: {}, pagesTotal: 0, pagesDone: 0, found: 0, unrelated: 0 };
   const adsBefore = blockedCount();
   const status = (message) => send('status', { message, ...stats });
   const seenMedia = new Set();
 
   const emit = (item, hit) => {
-    if (isBlockedVideo(item)) return; // excluded sites (YouTube, TikTok)
+    const hide = (reason) => { stats.hidden[reason] = (stats.hidden[reason] || 0) + 1; };
+    if (isBlockedVideo(item)) { hide('excluded site (YouTube, TikTok…)'); return; }
     // Adult sites switched off, or content depicting minors (always excluded).
-    if (dropAdult(item, hit, includeRedgifs)) return;
+    if (dropAdult(item, hit, includeRedgifs)) { hide(isAdultSite(item.pageUrl || '') && !includeRedgifs ? 'adult sites switched off' : 'depicts minors (always excluded)'); return; }
     const adult = isAdultSite(item.pageUrl || '') || isAdultSite(item.src || '');
     // Music videos / HMV / PMV everywhere, male-focus content on adult sites (tags, titles…).
-    if (unwantedContent([item.title, item.pageTitle, item.description, item.keywords, hit.title, hit.snippet, item.pageUrl, adult ? item.pageText : ''].join(' '), adult)) { stats.unrelated++; return; }
+    const unwanted = unwantedContent([item.title, item.pageTitle, item.description, item.keywords, hit.title, hit.snippet, item.pageUrl, adult ? item.pageText : ''].join(' '), adult);
+    if (unwanted) { stats.unrelated++; hide(unwanted); return; }
     // Strict matching: every word you typed must be in its title, description or tags.
-    if (!matchesQuery(q, item, hit, adult ? item.pageText : '')) { stats.unrelated++; return; }
+    // Strict matching applies to general web results (DuckDuckGo; test pages stand in for them).
+    // A site's own search already matched your words against its tags, often not in the title.
+    if ((hit.engine === 'duckduckgo' || hit.engine === 'test') && !matchesQuery(q, item, hit, adult ? item.pageText : '')) {
+      stats.unrelated++; hide("didn't match your words (web results)"); return;
+    }
     const key = item.kind === 'embed' ? `${item.provider}:${item.id}` : item.src.replace(/[?#].*$/, '');
     if (seenMedia.has(key)) return;
     seenMedia.add(key);
     stats.found++;
+    stats.added[hit.engine] = (stats.added[hit.engine] || 0) + 1;
     const { pageText, ...rest } = item;
     send('item', {
       ...rest,
@@ -110,6 +117,7 @@ async function handleSearch(req, res, query) {
         const hit = toInspect[next++];
         try {
           const items = await inspectPage(hit, { signal: ac.signal });
+          stats.checked[hit.engine] = (stats.checked[hit.engine] || 0) + 1;
           for (const it of items) emit(it, hit);
         } catch { /* page failed — skip */ }
         stats.pagesDone++;

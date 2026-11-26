@@ -209,6 +209,12 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
             if (playerView.visibility == View.VISIBLE) exo.volume = 1f else embed.command("unmute")
         }
 
+        // Tap the status line for the search report (per-site counts, hidden videos, failures).
+        (status.parent as View).setOnClickListener {
+            val text = engine.report.render()
+            CrashLog.show(this, "Search report", text + "\nTap Copy to paste this to Claude.", text)
+        }
+
         applyInsets()
         handleIntent(intent)
         CrashLog.showIfAny(this)
@@ -490,6 +496,7 @@ class MainActivity : ComponentActivity(), Engine.Listener, EmbedPlayer.Events {
     }
 
     private fun skip(key: String, v: Video?, why: String) {
+        engine.report.playFailed(v?.site ?: "?", why)
         val t = token
         failed += key
         current = null

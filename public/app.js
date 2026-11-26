@@ -138,6 +138,7 @@ function loadPage(page) {
     const sites = new Set([...session.items.values()].map((i) => i.site)).size;
     session.adsBlocked = (session.adsBlocked || 0) + ((d && d.adsBlocked) || 0);
     session.unrelated = (session.unrelated || 0) + ((d && d.unrelated) || 0);
+    addReport(session, d);
     const ads = (session.adsBlocked ? ` · ${session.adsBlocked} ad${session.adsBlocked === 1 ? '' : 's'} blocked` : '') +
       (session.unrelated ? ` · ${session.unrelated} unrelated hidden` : '');
     setStatus((n ? `Found ${n} video${n === 1 ? '' : 's'} across ${sites} site${sites === 1 ? '' : 's'}` : 'No playable videos found') + ads, true);
@@ -212,6 +213,7 @@ function play(it) {
     console.warn('skip', it.src, why);
     S.failed.add(it.key);
     S.current = null;
+    (S.failures || (S.failures = [])).push(`${it.site} — ${why}`);
     S.skipped = (S.skipped || 0) + 1;
     const name = (it.title || 'that video').slice(0, 60);
     setOverlay(`Couldn’t play “${name}”: ${why}. Skipping…`, true);
@@ -342,6 +344,30 @@ function setOverlay(text, busy, hide = false) {
   els.overlay.classList.toggle('hide', hide);
   els.overlay.classList.toggle('idle', !busy);
   els.overlayText.textContent = text;
+}
+
+// Search report: what each site returned / contributed, what was hidden and why, failed plays.
+function renderReport() {
+  if (!S) return 'No search yet.';
+  const r = S.report || { engines: {}, added: {}, checked: {}, hidden: {} };
+  const lines = [`Search report for "${S.q}"`, '', 'Sites (results → pages checked → videos added):'];
+  for (const [name, n] of Object.entries(r.engines)) {
+    lines.push(n ? `  ${name}: ${n} results → ${r.checked[name] || 0} checked → ${r.added[name] || 0} added` : `  ${name}: 0 results — blocked here, or the site changed`);
+  }
+  if (Object.keys(r.hidden).length) { lines.push('', 'Hidden:'); for (const [k, n] of Object.entries(r.hidden)) lines.push(`  ${k}: ${n}`); }
+  if ((S.failures || []).length) { lines.push('', "Couldn't play:"); for (const f of S.failures) lines.push(`  ${f}`); }
+  return lines.join('\n');
+}
+const reportEl = document.getElementById('report');
+document.getElementById('statusBox').addEventListener('click', () => {
+  reportEl.hidden = !reportEl.hidden;
+  if (!reportEl.hidden) reportEl.textContent = renderReport();
+});
+// Merge one round's stats (search pages can be fetched in several rounds).
+function addReport(session, d) {
+  const r = session.report || (session.report = { engines: {}, added: {}, checked: {}, hidden: {} });
+  for (const k of ['engines', 'added', 'checked', 'hidden']) for (const [name, n] of Object.entries((d && d[k]) || {})) r[k][name] = (r[k][name] || 0) + n;
+  if (!reportEl.hidden) reportEl.textContent = renderReport();
 }
 
 function setStatus(text, done) {

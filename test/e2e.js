@@ -361,6 +361,9 @@ function readSse(url) {
     assert.deepEqual(got, ['Volcano eruption caught on camera'], 'only the video whose title has both words');
     const done = ev.find((e) => e.event === 'done').data;
     assert.ok(done.unrelated >= 3, `unrelated videos counted (${done.unrelated})`);
+    assert.ok(done.hidden["didn't match your words (web results)"] >= 3, JSON.stringify(done.hidden));
+    assert.equal(done.checked.test, pagesList.length, 'pages checked per engine');
+    assert.equal(done.added.test, 1, 'videos added per engine');
     ev = await run('volcano', pagesList);
     got = ev.filter((e) => e.event === 'item').map((e) => e.data.title);
     assert.ok(!got.some((t) => /music video/i.test(t)), 'music video dropped');
@@ -455,6 +458,12 @@ function readSse(url) {
     await page.press('#q', 'Enter');
     await page.waitForFunction(() => { const v = document.querySelector('#video'); return !v.hidden && v.currentTime > 1.5; }, null, { timeout: 30000 });
     process.env.MEH_TEST_PAGES = pages.join(',');
+
+    // Search report: clicking the status line shows per-site counts.
+    await page.click('#statusBox');
+    await page.waitForFunction(() => !document.querySelector('#report').hidden && /Search report for/.test(document.querySelector('#report').textContent));
+    assert.match(await page.textContent('#report'), /pages checked/);
+    await page.click('#statusBox');
 
     // Phone width: no horizontal scroll.
     await page.setViewportSize({ width: 390, height: 844 });
